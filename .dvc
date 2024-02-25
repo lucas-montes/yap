@@ -1,0 +1,5 @@
+[core]
+    remote = "yanport-main"
+['remote "yanport-main"']
+    url = "gs://ml.yanport.com/dvc"
+

@@ -1,0 +1,26 @@
+stages:
+  first_stage:
+    cmd: python3 script.py
+      --zone ${zone}
+      --num-files 1
+    wdir: ../../../../../..
+    outs:
+      - first_out.txt
+    metrics:
+      - metrics/first.json:
+          cache: false
+
+  second_stage:
+    cmd: python3 script.py
+      --zone ${zone}
+      --num-files 2
+    wdir: ../../../../../..
+    deps:
+      - first_out.txt
+    outs:
+      - second_out.txt
+      - third_out.txt
+    metrics:
+      - metrics/third.json:
+      - metrics/second.json:
+          cache: false

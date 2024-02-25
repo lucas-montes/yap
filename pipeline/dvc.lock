@@ -1,0 +1,35 @@
+schema: '2.0'
+stages:
+  dump_init_graph@agglomeration:
+    cmd: python -m yanport_market_reliability_ml_ops.geo_network.dump_init_graph --zone
+      agglomeration --data-path data/geo_network/agglomeration/geo_network.geojson
+      --graph-path data/geo_network/agglomeration/init_graph.pickle
+    outs:
+    - path: data/geo_network/agglomeration/geo_network.geojson
+      hash: md5
+      md5: 3f286e10a5862536a8d10dda0eb04d68
+      size: 28243527
+    - path: data/geo_network/agglomeration/init_graph.pickle
+      hash: md5
+      md5: 33eeb7585282f696218cd9d9382d6b36
+      size: 385427
+    - path: metrics/geo_network/agglomeration/dump_init_graph.json
+      hash: md5
+      md5: 708f62e895c644cd4f8a5beaa1a05f81
+      size: 199
+  dump_init_graph@iris:
+    cmd: python -m yanport_market_reliability_ml_ops.geo_network.dump_init_graph --zone
+      iris --data-path data/geo_network/iris/geo_network.geojson --graph-path data/geo_network/iris/init_graph.pickle
+    outs:
+    - path: data/geo_network/iris/geo_network.geojson
+      hash: md5
+      md5: 142a8d9eb57e91b4df2835a33baff3c6
+      size: 324438557
+    - path: data/geo_network/iris/init_graph.pickle
+      hash: md5
+      md5: d22a17b1c59984b69c54cb1a01f72052
+      size: 15287085
+    - path: metrics/geo_network/iris/dump_init_graph.json
+      hash: md5
+      md5: a999d8e69625a3bcfc83cf1b03d7853a
+      size: 208
