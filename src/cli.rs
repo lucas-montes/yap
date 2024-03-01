@@ -2,7 +2,7 @@ use crate::data::DataArgs;
 use crate::documentation::DocsArgs;
 use crate::repro::{ReproArgs,repro};
 use crate::settings::Settings;
-use crate::versioning::run;
+use crate::turso_client::run;
 use clap::Parser;
 
 #[derive(Debug, Parser)]
