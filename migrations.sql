@@ -1,0 +1,33 @@
+CREATE TABLE Files (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    hash VARCHAR(48) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    next INTEGER,
+    previous INTEGER,
+    path VARCHAR(150) NOT NULL,
+    UNIQUE (hash),
+    UNIQUE (id),
+    FOREIGN KEY (next) REFERENCES FilesChanges(id),
+    FOREIGN KEY (previous) REFERENCES FilesChanges(id)
+);
+
+CREATE TABLE FilesChanges (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    next INTEGER,
+    current INTEGER,
+    path VARCHAR(150) NOT NULL,
+    UNIQUE (id),
+    FOREIGN KEY (current) REFERENCES Files(id),
+    FOREIGN KEY (next) REFERENCES Files(id)
+);
+
+CREATE TRIGGER update_timestamp
+AFTER UPDATE ON (Files, FilesChanges)
+FOR EACH ROW
+BEGIN
+    UPDATE Files SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
+

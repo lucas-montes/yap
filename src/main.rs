@@ -1,4 +1,6 @@
 mod cli;
+mod turso_client;
+mod versioning;
 mod settings;
 mod repro;
 mod data;

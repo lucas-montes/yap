@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::prelude::*;
+use std::path::PathBuf;
 
 use toml::de::Error;
 use toml::value::Table;
@@ -23,6 +24,20 @@ struct DvcConfig {
 
     #[serde(flatten)]
     remotes: Table,
+}
+
+#[derive(Debug)]
+pub struct Storage {
+    name: String,
+    url: String,
+}
+
+#[derive(Debug)]
+pub struct BlobObject {
+    storage: Storage,
+    filename: String,
+    current: PathBuf,
+    new: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
