@@ -1,9 +1,11 @@
 use crate::data::DataArgs;
 use crate::documentation::DocsArgs;
-use crate::repro::{ReproArgs,repro};
+use crate::repro::{repro, ReproArgs};
 use crate::settings::Settings;
-use crate::turso_client::run;
+use crate::versioning::run;
+
 use clap::Parser;
+use menva::read_env_file;
 
 #[derive(Debug, Parser)]
 #[command(name = "Yap", version = "0.0.1")]
@@ -15,13 +17,14 @@ pub struct Cli {
 
 impl Cli {
     pub async fn handle() -> i16 {
+        read_env_file(".env");
         let stdin_args = Cli::parse();
         let settings = Settings::new();
         match &stdin_args.command {
             Commands::Data(args) => args.command.handle_commands(&settings).await,
             Commands::Docs(args) => args.command.handle_commands(),
             Commands::Repro(args) => repro(args).await,
-            Commands::Test => run().await,
+            Commands::Test => run(&settings).await,
         }
     }
 }

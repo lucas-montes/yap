@@ -26,48 +26,36 @@ struct DvcConfig {
     remotes: Table,
 }
 
-#[derive(Debug)]
-pub struct Storage {
-    name: String,
-    url: String,
+#[derive(Debug, Deserialize, Default)]
+pub struct Settings {
+    //Turso settings for the databases
+    pub organization: String,
+    pub local: PathBuf,
+    pub remote: String,
+    pub group: String,
+    #[serde(default)]
+    pub remote_url: String,
 }
 
-#[derive(Debug)]
-pub struct BlobObject {
-    storage: Storage,
-    filename: String,
-    current: PathBuf,
-    new: PathBuf,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Settings {}
 impl Settings {
     pub fn new() -> Self {
-        Self {}
+        toml_to_struct(".yap/.config")
     }
 }
 
-fn read_toml() {
-    // Specify the path to your TOML file
-    let file_path = ".dvc";
-
-    // Read the contents of the file into a String
-    let mut file = File::open(file_path).expect("Unable to open file");
+fn toml_to_struct<T: for<'a> Deserialize<'a>>(path: &str) -> T {
+    let mut file = File::open(path).expect("Unable to open file");
     let mut toml_string = String::new();
     file.read_to_string(&mut toml_string)
         .expect("Unable to read file");
+    toml::from_str(&toml_string).expect("Unable to parse TOML")
+}
 
-    // Parse the TOML data into the Config struct
-    let config: DvcConfig = toml::from_str(&toml_string).expect("Unable to parse TOML");
-
-    // Access values in the Config struct
-    println!("Core remote: {}", config.core.remote);
-
-    // Extract remote configurations
-    for (remote_name, remote_config) in config.remotes.iter() {
-        if let Some(remote) = remote_config.get("url").and_then(|url| url.as_str()) {
-            println!("Remote {} URL: {}", remote_name, remote);
-        }
-    }
+fn read_toml() {
+    let config: DvcConfig = toml_to_struct(".dvc");
+    //for (remote_name, remote_config) in config.remotes.iter() {
+    //    if let Some(remote) = remote_config.get("url").and_then(|url| url.as_str()) {
+    //        println!("Remote {} URL: {}", remote_name, remote);
+    //    }
+    //}
 }
