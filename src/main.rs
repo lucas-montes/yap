@@ -1,11 +1,11 @@
 mod cli;
-mod turso_client;
-mod versioning;
-mod settings;
-mod repro;
 mod data;
 mod documentation;
 mod enums;
+mod repro;
+mod settings;
+mod turso;
+mod versioning;
 
 use cli::Cli;
 

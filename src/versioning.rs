@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     settings::Settings,
-    turso_client::{Database as PlatformDb, DatabasePlatform, Organisation, TursoClient},
+    turso::{Database as PlatformDb, DatabasesPlatform, TursoClient},
 };
 
 struct RowsIter<'a> {
@@ -41,7 +41,7 @@ struct File {
 }
 
 impl File {
-    pub fn remotes(&self)->Vec<&str>{
+    pub fn remotes(&self) -> Vec<&str> {
         self.remotes.split(",").collect()
     }
     async fn create(conn: &Connection, hash: &str, path: &str) -> Result<(), libsql::Error> {
@@ -96,12 +96,15 @@ async fn get_db(name: &str) {
     let rows = RowsIter::new(&mut results);
     let files = rows
         .map(|r| de::from_row::<File>(&r).unwrap())
-        .collect::<Vec<File>>().iter().map(|f| f.id).collect::<Vec<u32>>();
+        .collect::<Vec<File>>()
+        .iter()
+        .map(|f| f.id)
+        .collect::<Vec<u32>>();
     println!("{files:?}");
 }
 
 async fn get_remote_db(
-    client: &TursoClient<DatabasePlatform>,
+    client: &TursoClient<DatabasesPlatform>,
     organization_name: &str,
     db_name: &str,
 ) -> Option<PlatformDb> {
@@ -127,12 +130,12 @@ async fn sync_remote(settings: &Settings) {
     };
     println!("{remote_db:?}");
     let db_url = "";
-    //let db = Database::open_with_remote_sync(settings.local.to_str().unwrap(), db_url, token)
-    //    .await
-    //    .unwrap();
-    //let conn = db.connect().unwrap();
-    //match db.sync().await {
-    //    Ok(r) => println!("{r:?}"),
-    //    Err(err) => panic!("{err:?}"),
-    //};
+    // let db = Database::open_with_remote_sync(settings.local.to_str().unwrap(), db_url, token)
+    //     .await
+    //     .unwrap();
+    // let conn = db.connect().unwrap();
+    // match db.sync().await {
+    //     Ok(r) => println!("{r:?}"),
+    //     Err(err) => panic!("{err:?}"),
+    // };
 }
