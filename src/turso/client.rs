@@ -10,11 +10,13 @@ pub const DATABASES: &str = "databases";
 pub const DATABASE_INSTANCES: &str = "instances";
 pub const MEMBERS: &str = "members";
 pub const GROUPS: &str = "groups";
+pub const LOCATIONS: &str = "locations";
 pub const CREATE_TOKEN: &str = "auth/tokens";
 pub const INVALIDATE_TOKEN: &str = "auth/rotate";
 
 pub struct BasePlatform;
 pub struct OrganizationsPlatform;
+pub struct LocationsPlatform;
 pub struct MembersPlatform;
 pub struct DatabasesPlatform;
 pub struct DatabaseInstancesPlatform;
@@ -65,7 +67,13 @@ impl<Platform> TursoClient<Platform> {
             platform: PhantomData,
         }
     }
-
+    pub fn locations(self) -> TursoClient<LocationsPlatform> {
+        TursoClient {
+            token: self.token,
+            client: self.client,
+            platform: PhantomData,
+        }
+    }
     pub fn databases(self) -> TursoClient<DatabasesPlatform> {
         TursoClient {
             token: self.token,

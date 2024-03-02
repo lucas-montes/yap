@@ -1,7 +1,7 @@
+use crate::config::{Config, ConfigArgs};
 use crate::data::DataArgs;
 use crate::documentation::DocsArgs;
 use crate::repro::{repro, ReproArgs};
-use crate::settings::Settings;
 use crate::versioning::run;
 
 use clap::Parser;
@@ -18,13 +18,12 @@ pub struct Cli {
 impl Cli {
     pub async fn handle() -> i16 {
         read_env_file(".env");
-        let stdin_args = Cli::parse();
-        let settings = Settings::new();
-        match &stdin_args.command {
-            Commands::Data(args) => args.command.handle_commands(&settings).await,
+        match &Cli::parse().command {
+            Commands::Data(args) => args.command.handle_commands().await,
             Commands::Docs(args) => args.command.handle_commands(),
+            Commands::Config(args) => args.command.handle_commands().await,
             Commands::Repro(args) => repro(args).await,
-            Commands::Test => run(&settings).await,
+            Commands::Test => run().await,
         }
     }
 }
@@ -32,6 +31,10 @@ impl Cli {
 #[derive(Debug, Parser)]
 enum Commands {
     Test,
+    /// Version control your data
+    #[command(arg_required_else_help = true)]
+    Config(ConfigArgs),
+
     /// Version control your data
     #[command(arg_required_else_help = true)]
     Data(DataArgs),

@@ -1,9 +1,9 @@
 mod cli;
+mod config;
 mod data;
 mod documentation;
 mod enums;
 mod repro;
-mod settings;
 mod turso;
 mod versioning;
 

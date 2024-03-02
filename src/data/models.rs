@@ -1,5 +1,5 @@
+use crate::config::Config;
 use crate::enums::ColorWhen;
-use crate::settings::Settings;
 
 use clap::{Args, Subcommand};
 use opendal::services::Gcs;
@@ -43,8 +43,7 @@ pub enum DataCommands {
 
 impl DataCommands {
     fn get_credentials() {}
-    fn get_settings() {
-    }
+    fn get_config() {}
     fn create_operator() -> Operator {
         // create backend builder
         let mut builder = Gcs::default();
@@ -66,7 +65,8 @@ impl DataCommands {
             Err(err) => panic!("{:?}", err),
         }
     }
-    pub async fn handle_commands(&self, config: &Settings) -> i16 {
+    pub async fn handle_commands(&self) -> i16 {
+        let config = Config::new();
         let op = Self::create_operator();
         match self {
             DataCommands::Add(args) => args.run().await,
@@ -80,7 +80,7 @@ impl DataCommands {
 
 #[derive(Debug, Args, Clone)]
 pub struct AddData {
-    #[arg(short, long, required=false)]
+    #[arg(short, long, required = false)]
     paths: Vec<String>,
 }
 

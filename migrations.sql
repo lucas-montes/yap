@@ -20,15 +20,23 @@ CREATE TABLE files_changes (
     next INTEGER,
     current INTEGER,
     path VARCHAR(150) NOT NULL,
+    analysis VARCHAR(150) NOT NULL,
     UNIQUE (id),
     FOREIGN KEY (current) REFERENCES files(id),
     FOREIGN KEY (next) REFERENCES files(id)
 );
 
-CREATE TRIGGER update_timestamp
-AFTER UPDATE ON (Files, FilesChanges)
+CREATE TRIGGER update_files_timestamp
+AFTER UPDATE ON files
 FOR EACH ROW
 BEGIN
-    UPDATE Files SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+    UPDATE files SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER update_files_changes_timestamp
+AFTER UPDATE ON files_changes
+FOR EACH ROW
+BEGIN
+    UPDATE files SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.file_id;
 END;
 

@@ -62,7 +62,7 @@ impl TursoClient<DatabasesPlatform> {
         &self,
         organization_name: &str,
         database_name: &str,
-    ) -> Result<Database, TursoError> {
+    ) -> Result<RetrievedDatabase, TursoError> {
         let url = format!("{ORGANIZATIONS}/{organization_name}/{DATABASES}/{database_name}");
         self.get(&url).await
     }
@@ -73,7 +73,7 @@ impl TursoClient<DatabasesPlatform> {
         organization_name: &str,
         name: &str,
         group: &str,
-    ) -> Result<Database, TursoError> {
+    ) -> Result<RetrievedDatabase, TursoError> {
         let url = format!("{ORGANIZATIONS}/{organization_name}/{DATABASES}");
         self.post(&url, &CreateDatabase::new(name, group)).await
     }

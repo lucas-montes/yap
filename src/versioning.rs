@@ -3,8 +3,8 @@ use menva::get_env;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    settings::Settings,
-    turso::{Database as PlatformDb, DatabasesPlatform, TursoClient},
+    config::Config,
+    turso::{DatabasesPlatform, GroupsPlatform, RetrievedDatabase, TursoClient},
 };
 
 struct RowsIter<'a> {
@@ -83,9 +83,10 @@ impl File {
     }
 }
 
-pub async fn run(settings: &Settings) -> i16 {
-    get_db(settings.local.to_str().unwrap()).await;
-    sync_remote(settings).await;
+pub async fn run() -> i16 {
+    let config = Config::new();
+    get_db(config.local.to_str().unwrap()).await;
+    sync_remote(&config).await;
     0
 }
 
@@ -103,34 +104,20 @@ async fn get_db(name: &str) {
     println!("{files:?}");
 }
 
-async fn get_remote_db(
-    client: &TursoClient<DatabasesPlatform>,
-    organization_name: &str,
-    db_name: &str,
-) -> Option<PlatformDb> {
-    match client.retrieve(organization_name, db_name).await {
-        Ok(db) => Some(db),
-        Err(err) => {
-            println!("remote db exists {err:?}");
-            None
-        }
-    }
-}
-
-async fn sync_remote(settings: &Settings) {
+async fn sync_remote(config: &Config) {
     let (token, client) = (get_env("TOKEN"), TursoClient::new());
-    let db_client = client.databases();
-    let remote_db = match get_remote_db(&db_client, &settings.organization, &settings.remote).await
-    {
+    let gp_client = client.groups();
+    let db_client = gp_client.databases();
+    let remote_db = match get_remote_db(&db_client, &config.organization, &config.remote).await {
         Some(db) => db,
         None => db_client
-            .create(&settings.organization, &settings.remote, &settings.group)
+            .create(&config.organization, &config.remote, &config.group)
             .await
             .unwrap(),
     };
     println!("{remote_db:?}");
     let db_url = "";
-    // let db = Database::open_with_remote_sync(settings.local.to_str().unwrap(), db_url, token)
+    // let db = Database::open_with_remote_sync(config.local.to_str().unwrap(), db_url, token)
     //     .await
     //     .unwrap();
     // let conn = db.connect().unwrap();
@@ -138,4 +125,27 @@ async fn sync_remote(settings: &Settings) {
     //     Ok(r) => println!("{r:?}"),
     //     Err(err) => panic!("{err:?}"),
     // };
+}
+
+async fn get_remote_db(
+    client: &TursoClient<DatabasesPlatform>,
+    organization_name: &str,
+    db_name: &str,
+) -> Option<RetrievedDatabase> {
+    match client.retrieve(organization_name, db_name).await {
+        Ok(db) => Some(db),
+        Err(err) => {
+            //TODO: do something, maybe panic
+            println!("remote db exists {err:?}");
+            None
+        }
+    }
+}
+
+async fn get_or_create_group(client: &TursoClient<GroupsPlatform>, config: &Config) {
+    let groups = client.list(&config.organization).await;
+    println!("{groups:?}");
+    if groups.unwrap().groups.is_empty() {
+        client.create(&config.organization, "test", &config.location);
+    }
 }
