@@ -5,13 +5,14 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
 use libsql::Database;
-use menva::get_env;
 use serde::{Deserialize, Serialize};
 use toml::value::Table;
 
 use crate::{
     enums::ColorWhen,
-    turso::{DatabasesPlatform, GroupsPlatform, RetrievedDatabase, TursoClient},
+    turso::{
+        DatabasesPlatform, GroupsPlatform, LocationsPlatform, OrganizationsPlatform, TursoClient,
+    },
 };
 
 #[derive(Debug, Deserialize)]
@@ -69,7 +70,7 @@ pub enum ConfigCommands {
     Validate,
     /// Creates the values in the configurations file if they dont exists. In case that some
     /// informations may be empty they will be filled if possible
-    Apply,
+    Init,
 }
 
 impl ConfigCommands {
@@ -80,7 +81,7 @@ impl ConfigCommands {
             ConfigCommands::Get(args) => args.get().await,
             ConfigCommands::Remove(args) => args.remove().await,
             ConfigCommands::Validate => Config::validate().await,
-            ConfigCommands::Apply => Config::apply().await,
+            ConfigCommands::Init => Config::init().await,
         };
         0
     }
@@ -113,73 +114,99 @@ impl Config {
 
     async fn validate() {}
 
-    async fn apply() {
-        let mut file_config = Config::new();
-        let client = TursoClient::new().locations();
-
-        // Set closet location
-        if file_config.location.is_empty() {
-            match client.closet_region().await {
-                Ok(l) => file_config.location = l.client,
+    async fn set_default_location(&mut self, client: &TursoClient<LocationsPlatform>) -> &mut Self {
+        if self.location.is_empty() {
+            match client.closest_region().await {
+                Ok(l) => self.location = l.client,
                 Err(err) => panic!("{err:?}"),
             };
         }
-
-        // Set the organization if needed
-        let client = client.organizations();
-        if file_config.organization.is_empty() {
-            file_config.organization = client
+        self
+    }
+    async fn set_default_organization(
+        &mut self,
+        client: &TursoClient<OrganizationsPlatform>,
+    ) -> &mut Self {
+        if self.organization.is_empty() {
+            self.organization = client
                 .list()
                 .await
                 .unwrap()
                 .iter()
-                .find(|o| o.name == "default")
+                .find(|o| o.name == "personal")
                 .unwrap()
                 .slug
                 .clone();
         }
+        self
+    }
+    async fn set_default_group(&mut self, client: &TursoClient<GroupsPlatform>) -> &mut Self {
+        if self.group.is_empty() {
+            let default_name = "yap-default";
+            let groups = client.list(&self.organization).await.unwrap().groups;
 
-        // Create group if needed
-        let client = client.groups();
-        if file_config.group.is_empty() {
-            if client
-                .list(&file_config.organization)
-                .await
-                .unwrap()
-                .groups
-                .is_empty()
-            {
-                let default_name = "yap-default";
+            let default_group = groups.iter().find(|g| g.name == default_name);
+            if groups.is_empty() | default_group.is_none() {
                 let new_group = client
-                    .create(
-                        &file_config.organization,
-                        default_name,
-                        &file_config.location,
-                    )
+                    .create(&self.organization, default_name, &self.location)
                     .await
                     .unwrap();
-                file_config.group = new_group.group.name.clone();
+                self.group = new_group.group.name.clone();
+            } else if default_group.is_some() {
+                let default_group = default_group.unwrap();
+                self.group = default_group.name.clone();
             };
         }
-
-        // Create local database if needed
-        if !file_config.local.is_file() {
+        self
+    }
+    async fn set_default_local_db(&mut self) -> &mut Self {
+        if !self.local.is_file() {
             let default_name = ".yap/yap-default.db";
             let db = Database::open(default_name).unwrap();
             let conn = db.connect().unwrap();
             //TODO: apply migrations
         }
-
-        // Create remote database if needed
-        let client = client.databases();
-        if file_config.remote.is_empty() {
+        self
+    }
+    async fn set_default_remote_db(
+        &mut self,
+        client: &TursoClient<DatabasesPlatform>,
+    ) -> &mut Self {
+        if self.remote.is_empty() {
             let default_name = "yap-default";
-            let new_db = client
-                .create(&file_config.organization, default_name, &file_config.group)
-                .await
-                .unwrap();
-            file_config.remote = new_db.database.hostname.to_owned();
+            let databases = client.list(&self.organization).await.unwrap();
+            let default_db = databases.databases.iter().find(|g| g.name == default_name);
+            let mut remote = String::from("libsql://");
+            if default_db.is_some() {
+                remote.push_str(&default_db.unwrap().hostname.to_owned());
+            } else {
+                let new_db = client
+                    .create(&self.organization, default_name, &self.group)
+                    .await
+                    .unwrap();
+                remote.push_str(&new_db.database.hostname.to_owned());
+            }
+            self.remote = remote;
         }
+        self
+    }
+
+    async fn init() {
+        let mut file_config = Config::new();
+        let client = TursoClient::new().locations();
+
+        file_config.set_default_location(&client).await;
+
+        let client = client.organizations();
+        file_config.set_default_organization(&client).await;
+
+        let client = client.groups();
+        file_config.set_default_group(&client).await;
+
+        file_config.set_default_local_db().await;
+
+        let client = client.databases();
+        file_config.set_default_remote_db(&client).await;
 
         struct_to_toml(&file_config, ".yap/.config");
     }
@@ -203,6 +230,6 @@ fn toml_to_struct<T: for<'a> Deserialize<'a>>(path: &str) -> T {
 
 fn struct_to_toml<T: Serialize>(instance: &T, path: &str) {
     let data = toml::to_string_pretty(instance).expect("Unable to parse TOML");
-    let mut file = File::open(path).expect("Unable to open file");
-    file.write_all(data.as_bytes());
+    let mut file = File::create(path).expect("Unable to open file");
+    let _ = file.write_all(data.as_bytes());
 }

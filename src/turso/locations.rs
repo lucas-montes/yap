@@ -4,10 +4,10 @@ use serde::Deserialize;
 
 use super::client::{LocationsPlatform, TursoClient, TursoError, LOCATIONS};
 
-pub const REGIONS_PATH: &str = "https://region.turso.tech";
+pub const REGIONS_PATH: &str = "https://region.turso.io";
 
 #[derive(Debug, Deserialize, Default)]
-pub struct ClosetRegion {
+pub struct ClosestRegion {
     pub server: String,
     pub client: String,
 }
@@ -19,7 +19,7 @@ pub struct Locations {
 /// Locations Platform
 impl TursoClient<LocationsPlatform> {
     /// Method to list all the locations
-    pub async fn closet_region(&self) -> Result<ClosetRegion, TursoError> {
+    pub async fn closest_region(&self) -> Result<ClosestRegion, TursoError> {
         self.get(REGIONS_PATH).await
     }
     /// Method to list all the locations

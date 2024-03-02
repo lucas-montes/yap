@@ -5,6 +5,8 @@ use super::client::{
     DATABASE_INSTANCES, ORGANIZATIONS,
 };
 
+// After creating a new database the response give us some informations, thats why we use a default to
+// avoid having an error when serializing the response
 #[derive(Debug, Deserialize, Default)]
 pub struct Database {
     #[serde(rename = "DbId")]
@@ -13,12 +15,15 @@ pub struct Database {
     pub hostname: String,
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(default)]
     pub group: String,
-    #[serde(rename = "primaryRegion")]
+    #[serde(rename = "primaryRegion", default)]
     pub primary_region: String,
+    #[serde(default)]
     pub regions: Vec<String>,
-    #[serde(rename = "type")]
+    #[serde(rename = "type", default)]
     pub type_: String,
+    #[serde(default)]
     pub version: String,
 }
 

@@ -6,7 +6,7 @@ use super::client::{
 
 #[derive(Debug, Deserialize, Default)]
 pub struct Group {
-    pub archived: String,
+    pub archived: bool,
     pub locations: Vec<String>,
     pub name: String,
     pub primary: String,

@@ -107,9 +107,14 @@ impl<Platform> TursoClient<Platform> {
     }
 
     pub async fn get<T: for<'a> Deserialize<'a>>(&self, url: &str) -> Result<T, TursoError> {
+        let url = if url.starts_with("https") {
+            url.to_string()
+        } else {
+            format!("{BASE_PATH}{url}")
+        };
         let response = self
             .client
-            .get(format!("{BASE_PATH}{url}"))
+            .get(url)
             .bearer_auth(&self.token)
             .send()
             .await

@@ -101,51 +101,16 @@ async fn get_db(name: &str) {
         .iter()
         .map(|f| f.id)
         .collect::<Vec<u32>>();
-    println!("{files:?}");
 }
 
 async fn sync_remote(config: &Config) {
     let (token, client) = (get_env("TOKEN"), TursoClient::new());
-    let gp_client = client.groups();
-    let db_client = gp_client.databases();
-    let remote_db = match get_remote_db(&db_client, &config.organization, &config.remote).await {
-        Some(db) => db,
-        None => db_client
-            .create(&config.organization, &config.remote, &config.group)
-            .await
-            .unwrap(),
+    let db = Database::open_with_remote_sync(config.local.to_str().unwrap(), db_url, token)
+        .await
+        .unwrap();
+    let conn = db.connect().unwrap();
+    match db.sync().await {
+        Ok(r) => println!("{r:?}"),
+        Err(err) => panic!("{err:?}"),
     };
-    println!("{remote_db:?}");
-    let db_url = "";
-    // let db = Database::open_with_remote_sync(config.local.to_str().unwrap(), db_url, token)
-    //     .await
-    //     .unwrap();
-    // let conn = db.connect().unwrap();
-    // match db.sync().await {
-    //     Ok(r) => println!("{r:?}"),
-    //     Err(err) => panic!("{err:?}"),
-    // };
-}
-
-async fn get_remote_db(
-    client: &TursoClient<DatabasesPlatform>,
-    organization_name: &str,
-    db_name: &str,
-) -> Option<RetrievedDatabase> {
-    match client.retrieve(organization_name, db_name).await {
-        Ok(db) => Some(db),
-        Err(err) => {
-            //TODO: do something, maybe panic
-            println!("remote db exists {err:?}");
-            None
-        }
-    }
-}
-
-async fn get_or_create_group(client: &TursoClient<GroupsPlatform>, config: &Config) {
-    let groups = client.list(&config.organization).await;
-    println!("{groups:?}");
-    if groups.unwrap().groups.is_empty() {
-        client.create(&config.organization, "test", &config.location);
-    }
 }
