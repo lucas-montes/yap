@@ -104,13 +104,11 @@ async fn get_db(name: &str) {
 }
 
 async fn sync_remote(config: &Config) {
-    let (token, client) = (get_env("TOKEN"), TursoClient::new());
-    let db = Database::open_with_remote_sync(config.local.to_str().unwrap(), db_url, token)
+    let token = get_env("TOKEN");
+    let db = Database::open_with_remote_sync(config.local.to_str().unwrap(), &config.remote, token)
         .await
         .unwrap();
     let conn = db.connect().unwrap();
-    match db.sync().await {
-        Ok(r) => println!("{r:?}"),
-        Err(err) => panic!("{err:?}"),
-    };
+    let r = db.sync().await;
+    println!("{r:?}");
 }

@@ -141,7 +141,8 @@ impl Config {
         self
     }
     async fn set_default_group(&mut self, client: &TursoClient<GroupsPlatform>) -> &mut Self {
-        if self.group.is_empty() {
+        // if we delete our only database related to a group it seems that it deletes the group too
+        if self.group.is_empty() | self.remote.is_empty() {
             let default_name = "yap-default";
             let groups = client.list(&self.organization).await.unwrap().groups;
 
