@@ -1,5 +1,11 @@
+use std::os::unix::fs::MetadataExt;
+use std::time::SystemTime;
+use std::{fs, path::PathBuf};
+
+use hex::ToHex;
 use libsql::{de, params, Connection, Database, Row, Rows};
 use menva::get_env;
+use meowhash::MeowHasher;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -28,7 +34,18 @@ impl<'a> Iterator for RowsIter<'a> {
     }
 }
 
-#[derive(Debug,Default, Serialize, Deserialize, Clone)]
+fn compress_file(input: &[u8], level: i32) {
+    let compressed = zstd::encode_all(input, level).unwrap();
+    let decoded: Vec<u8> = zstd::decode_all(compressed.as_slice()).unwrap();
+    let decoded_text = std::str::from_utf8(&decoded).unwrap();
+}
+
+fn get_file_hash(input: &[u8]) -> String {
+    let data = MeowHasher::hash(input).into_bytes();
+    hex::encode(data)
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct File {
     id: u32,
     hash: String,
@@ -38,15 +55,33 @@ pub struct File {
     next: Option<u32>,
     previous: Option<u32>,
     path: String,
+    size: u64,
+    local: String,
+    remote: String,
 }
 
+
 impl File {
-    pub fn new()->Self{
-        Self::default()
-}
+    pub fn new(path: &PathBuf) -> Self {
+        let data = fs::read(path).unwrap();
+        let file_meta = path.metadata().unwrap();
+        Self {
+            hash: MeowHasher::hash(&data).into_bytes().encode_hex::<String>(),
+            path: path.to_str().unwrap().to_owned(),
+            size: file_meta.size(),
+            ..Self::default()
+        }
+    }
+
+    pub fn duplicate(&self, mut history:PathBuf) {
+        history.push(&self.path);
+        fs::copy(&self.path, &history).unwrap();
+    }
+
     pub fn remotes(&self) -> Vec<&str> {
         self.remotes.split(",").collect()
     }
+
     pub async fn add_many(conn: &Connection) {
         let mut stmts = vec![];
         for i in 1..(5 + 1) {

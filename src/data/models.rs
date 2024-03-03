@@ -1,5 +1,7 @@
 use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
+use std::time::SystemTime;
 
 use crate::config::Config;
 use crate::enums::ColorWhen;
@@ -8,6 +10,7 @@ use crate::versioning::File;
 use clap::{Args, Subcommand};
 use opendal::services::Gcs;
 use opendal::Operator;
+use rayon::prelude::*;
 
 #[derive(Debug, Args)]
 #[command(args_conflicts_with_subcommands = true)]
@@ -87,7 +90,7 @@ impl DataCommands {
 
 #[derive(Debug, Args, Clone)]
 pub struct AddData {
-    #[arg(short, long)]
+    #[arg(short, long,num_args = 1..)]
     paths: Vec<PathBuf>,
     #[arg(
         short,
@@ -99,30 +102,44 @@ pub struct AddData {
     copy: bool,
 }
 
+fn create_path_to_history() -> PathBuf {
+    let mut current_dir = std::env::current_dir().unwrap();
+    current_dir.push(".yap/history");
+    let now = chrono::offset::Local::now().timestamp();
+    current_dir.push(format!("{now:?}"));
+    fs::create_dir_all(&current_dir).unwrap();
+    current_dir
+}
+
 impl AddData {
     async fn run(&self) -> i16 {
-        
-        println!("{self:?}");
-        let r: Vec<File> =self.paths
-            .iter()
-            .flat_map(|p| AddData::handle_path(&self.copy, p)).collect();
-        println!("{r:?}");
+        //TODO: check if files already exists before running everything
+        let root_project = std::env::current_dir().unwrap();
+        let history = create_path_to_history();
+        let files: Vec<File> = self
+            .paths
+            .par_iter()
+            .flat_map(|p| {
+                let mut rp = root_project.clone();
+                rp.push(p);
+                AddData::handle_path(&rp)
+            })
+            .collect();
+        if self.copy {
+            files.par_iter().for_each(|f| f.duplicate(history.clone()));
+        }
         0
     }
 
-    fn handle_path(copy: &bool, path: &PathBuf) -> Vec<File> {
-        let path = path.canonicalize().unwrap();
-        println!("{path:?}");
+    fn handle_path(path: &PathBuf) -> Vec<File> {
         if path.is_dir() {
             return fs::read_dir(path)
                 .unwrap()
-                .flat_map(|p| AddData::handle_path(copy, &p.unwrap().path()))
+                .flat_map(|p| AddData::handle_path(&p.unwrap().path()))
                 .collect();
         }
-        File::new();
-        let file_meta = path.metadata().unwrap();
-        println!("{file_meta:?}");
-        vec![]
+        let file = File::new(&path);
+        vec![file]
     }
 }
 
