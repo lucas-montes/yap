@@ -1,5 +1,9 @@
+use std::fs;
+use std::path::PathBuf;
+
 use crate::config::Config;
 use crate::enums::ColorWhen;
+use crate::versioning::File;
 
 use clap::{Args, Subcommand};
 use opendal::services::Gcs;
@@ -24,12 +28,14 @@ pub struct DataArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum DataCommands {
-    /// Add a new object
+    /// Start keeping track of one or many files
     #[command(arg_required_else_help = true)]
     Add(AddData),
 
-    /// Push an actual object
-    #[command(arg_required_else_help = true)]
+    /// Commit of one or many files
+    Commit(CommitData),
+
+    /// Push the latest version of the selected files
     Push(PushData),
 
     /// remove one object
@@ -70,6 +76,7 @@ impl DataCommands {
         let op = Self::create_operator();
         match self {
             DataCommands::Add(args) => args.run().await,
+            DataCommands::Commit(args) => args.run().await,
             DataCommands::Push(args) => args.run(&op).await,
             DataCommands::Get(args) => args.run(&op).await,
             DataCommands::Remove(args) => args.run(&op).await,
@@ -80,11 +87,52 @@ impl DataCommands {
 
 #[derive(Debug, Args, Clone)]
 pub struct AddData {
+    #[arg(short, long)]
+    paths: Vec<PathBuf>,
+    #[arg(
+        short,
+        long,
+        default_value_t = true,
+        required = false,
+        help = "Set to true so a copy of the file is created after each commit to keep track of the changes"
+    )]
+    copy: bool,
+}
+
+impl AddData {
+    async fn run(&self) -> i16 {
+        
+        println!("{self:?}");
+        let r: Vec<File> =self.paths
+            .iter()
+            .flat_map(|p| AddData::handle_path(&self.copy, p)).collect();
+        println!("{r:?}");
+        0
+    }
+
+    fn handle_path(copy: &bool, path: &PathBuf) -> Vec<File> {
+        let path = path.canonicalize().unwrap();
+        println!("{path:?}");
+        if path.is_dir() {
+            return fs::read_dir(path)
+                .unwrap()
+                .flat_map(|p| AddData::handle_path(copy, &p.unwrap().path()))
+                .collect();
+        }
+        File::new();
+        let file_meta = path.metadata().unwrap();
+        println!("{file_meta:?}");
+        vec![]
+    }
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct CommitData {
     #[arg(short, long, required = false)]
     paths: Vec<String>,
 }
 
-impl AddData {
+impl CommitData {
     async fn run(&self) -> i16 {
         0
     }

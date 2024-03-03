@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use menva::get_env;
 use reqwest::{Client, ClientBuilder, Response};
 use serde::{Deserialize, Serialize};
+use strum_macros::{Display, EnumString, IntoStaticStr};
 
 pub const BASE_PATH: &str = "https://api.turso.tech/v1/";
 pub const ORGANIZATIONS: &str = "organizations";
@@ -22,6 +23,14 @@ pub struct DatabasesPlatform;
 pub struct DatabaseInstancesPlatform;
 pub struct DatabaseTokensPlatform;
 pub struct GroupsPlatform;
+
+#[derive(Display, EnumString, IntoStaticStr)]
+pub enum Authorization {
+    #[strum(serialize = "full-access")]
+    FullAccess,
+    #[strum(serialize = "read-only")]
+    ReadOnly
+}
 
 pub struct TursoClient<Platform = BasePlatform> {
     token: String,

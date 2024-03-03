@@ -1,8 +1,7 @@
-use crate::config::{Config, ConfigArgs};
+use crate::config::ConfigArgs;
 use crate::data::DataArgs;
 use crate::documentation::DocsArgs;
 use crate::repro::{repro, ReproArgs};
-use crate::turso::TursoClient;
 use crate::versioning::run;
 
 use clap::Parser;
@@ -19,13 +18,12 @@ pub struct Cli {
 impl Cli {
     pub async fn handle() -> i16 {
         read_env_file(".env");
-        let client = TursoClient::new().locations();
         match &Cli::parse().command {
             Commands::Data(args) => args.command.handle_commands().await,
             Commands::Docs(args) => args.command.handle_commands(),
             Commands::Config(args) => args.command.handle_commands().await,
             Commands::Repro(args) => repro(args).await,
-            Commands::Test => {let r = client.closest_region().await;1},
+            Commands::Test => run().await,
         }
     }
 }

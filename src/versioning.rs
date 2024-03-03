@@ -28,21 +28,35 @@ impl<'a> Iterator for RowsIter<'a> {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct File {
+#[derive(Debug,Default, Serialize, Deserialize, Clone)]
+pub struct File {
     id: u32,
     hash: String,
     created_at: String,
     updated_at: String,
     remotes: String,
-    next: Option<u8>,
-    previous: Option<u8>,
+    next: Option<u32>,
+    previous: Option<u32>,
     path: String,
 }
 
 impl File {
+    pub fn new()->Self{
+        Self::default()
+}
     pub fn remotes(&self) -> Vec<&str> {
         self.remotes.split(",").collect()
+    }
+    pub async fn add_many(conn: &Connection) {
+        let mut stmts = vec![];
+        for i in 1..(5 + 1) {
+            let curr_stmt = format!("insert into todos values (\"do task no. {i}\")");
+            stmts.push(curr_stmt.to_string());
+        }
+        stmts.push("end;".to_string());
+
+        let stmts = stmts.join(";");
+        let _result = conn.execute_batch(&stmts).await;
     }
     async fn create(conn: &Connection, hash: &str, path: &str) -> Result<(), libsql::Error> {
         let r = conn
@@ -81,34 +95,30 @@ impl File {
             .await?;
         Ok(())
     }
+    async fn get_all(conn: &Connection) -> Result<Vec<File>, libsql::Error> {
+        let mut results = conn.query("SELECT * FROM files", ()).await?;
+        Ok(RowsIter::new(&mut results)
+            .map(|r| de::from_row::<File>(&r).unwrap())
+            .collect::<Vec<File>>())
+    }
 }
 
 pub async fn run() -> i16 {
     let config = Config::new();
-    get_db(config.local.to_str().unwrap()).await;
     sync_remote(&config).await;
     0
 }
 
-async fn get_db(name: &str) {
-    let db = Database::open(name).unwrap();
-    let conn = db.connect().unwrap();
-    let mut results = conn.query("SELECT * FROM files", ()).await.unwrap();
-    let rows = RowsIter::new(&mut results);
-    let files = rows
-        .map(|r| de::from_row::<File>(&r).unwrap())
-        .collect::<Vec<File>>()
-        .iter()
-        .map(|f| f.id)
-        .collect::<Vec<u32>>();
-}
-
 async fn sync_remote(config: &Config) {
-    let token = get_env("TOKEN");
+    let token = get_env("DB_TOKEN");
+    let client = TursoClient::new().databases();
+    println!("opening db");
     let db = Database::open_with_remote_sync(config.local.to_str().unwrap(), &config.remote, token)
         .await
         .unwrap();
+    println!("db opened");
     let conn = db.connect().unwrap();
+    println!("synquing");
     let r = db.sync().await;
     println!("{r:?}");
 }
