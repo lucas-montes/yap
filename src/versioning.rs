@@ -6,6 +6,7 @@ use hex::ToHex;
 use libsql::{de, params, Connection, Database, Row, Rows};
 use menva::get_env;
 use meowhash::MeowHasher;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -40,11 +41,6 @@ fn compress_file(input: &[u8], level: i32) {
     let decoded_text = std::str::from_utf8(&decoded).unwrap();
 }
 
-fn get_file_hash(input: &[u8]) -> String {
-    let data = MeowHasher::hash(input).into_bytes();
-    hex::encode(data)
-}
-
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct File {
     id: u32,
@@ -57,9 +53,7 @@ pub struct File {
     path: String,
     size: u64,
     local: String,
-    remote: String,
 }
-
 
 impl File {
     pub fn new(path: &PathBuf) -> Self {
@@ -73,7 +67,7 @@ impl File {
         }
     }
 
-    pub fn duplicate(&self, mut history:PathBuf) {
+    pub fn duplicate(&self, mut history: PathBuf) {
         history.push(&self.path);
         fs::copy(&self.path, &history).unwrap();
     }
@@ -82,17 +76,23 @@ impl File {
         self.remotes.split(",").collect()
     }
 
-    pub async fn add_many(conn: &Connection) {
-        let mut stmts = vec![];
-        for i in 1..(5 + 1) {
-            let curr_stmt = format!("insert into todos values (\"do task no. {i}\")");
-            stmts.push(curr_stmt.to_string());
-        }
-        stmts.push("end;".to_string());
-
-        let stmts = stmts.join(";");
-        let _result = conn.execute_batch(&stmts).await;
+    fn to_insert_query(&self) -> String {
+        format!(
+            "INSERT INTO files (hash, path, size, local) VALUES ('{}', '{}', {}, '{}')",
+            &self.hash, &self.path, &self.size, &self.local,
+        )
     }
+
+    pub async fn add_many(conn: &Connection, files: &Vec<File>) {
+        let mut stmts = files
+            .iter()
+            .map(|f| f.to_insert_query())
+            .collect::<Vec<String>>()
+            .join(";");
+        stmts.push_str("end;");
+        let _result = conn.execute_batch(&stmts).await.unwrap();
+    }
+
     async fn create(conn: &Connection, hash: &str, path: &str) -> Result<(), libsql::Error> {
         let r = conn
             .execute(
@@ -142,6 +142,11 @@ pub async fn run() -> i16 {
     let config = Config::new();
     sync_remote(&config).await;
     0
+}
+
+pub async fn connect_db() -> Connection {
+    let db = Database::open(".yap/local.db").unwrap();
+    db.connect().unwrap()
 }
 
 async fn sync_remote(config: &Config) {

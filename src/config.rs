@@ -1,7 +1,7 @@
 use core::panic;
-use std::fs::File;
 use std::io::prelude::*;
 use std::path::PathBuf;
+use std::{fs::File, path::Path};
 
 use clap::{Args, Subcommand};
 use libsql::Database;
@@ -87,6 +87,12 @@ impl ConfigCommands {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
+pub struct Author {
+    name: String,
+    email: String,
+}
+
 #[derive(Debug, Args, Deserialize, Default, Serialize, PartialEq, Clone)]
 pub struct Config {
     //Turso config for the databases
@@ -105,10 +111,25 @@ pub struct Config {
     #[arg(short, long, required = false)]
     #[serde(default)]
     pub location: String,
+    #[clap(skip)]
+    #[serde(default)]
+    pub author: Author,
 }
 
+fn check_for_root() {
+    let current_dir = std::env::current_dir().unwrap();
+    //current_dir.push(".yap/");
+
+    match Path::new(".yap").exists() {
+        true => (),
+        false => panic!("oupsi daisy no you are not in the root buddy"),
+    }
+}
+
+// lets enfore being in the root of the project to launch the cli for the moment
 impl Config {
     pub fn new() -> Self {
+        check_for_root();
         toml_to_struct(".yap/.config")
     }
 
@@ -162,10 +183,16 @@ impl Config {
     }
     async fn set_default_local_db(&mut self) -> &mut Self {
         if !self.local.is_file() {
-            let default_name = ".yap/yap-default.db";
+            let default_name = ".yap/local.db";
+            let query = match tokio::fs::read_to_string("migrations.sql").await {
+                Ok(sql) => sql,
+                Err(err) => {
+                    panic!("{:?}", err);
+                }
+            };
             let db = Database::open(default_name).unwrap();
             let conn = db.connect().unwrap();
-            //TODO: apply migrations
+            conn.execute(&query, ()).await.unwrap();
         }
         self
     }

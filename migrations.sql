@@ -7,6 +7,7 @@ CREATE TABLE files (
     next INTEGER,
     previous INTEGER,
     path VARCHAR(150) NOT NULL,
+    size INTEGER,
     UNIQUE (hash),
     UNIQUE (id),
     FOREIGN KEY (next) REFERENCES files_changes(id),

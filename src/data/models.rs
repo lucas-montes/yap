@@ -5,7 +5,7 @@ use std::time::SystemTime;
 
 use crate::config::Config;
 use crate::enums::ColorWhen;
-use crate::versioning::File;
+use crate::versioning::{connect_db, File};
 
 use clap::{Args, Subcommand};
 use opendal::services::Gcs;
@@ -78,7 +78,7 @@ impl DataCommands {
         let config = Config::new();
         let op = Self::create_operator();
         match self {
-            DataCommands::Add(args) => args.run().await,
+            DataCommands::Add(args) => args.run(&config).await,
             DataCommands::Commit(args) => args.run().await,
             DataCommands::Push(args) => args.run(&op).await,
             DataCommands::Get(args) => args.run(&op).await,
@@ -112,7 +112,7 @@ fn create_path_to_history() -> PathBuf {
 }
 
 impl AddData {
-    async fn run(&self) -> i16 {
+    async fn run(&self, config: &Config) -> i16 {
         //TODO: check if files already exists before running everything
         let root_project = std::env::current_dir().unwrap();
         let history = create_path_to_history();
@@ -128,6 +128,8 @@ impl AddData {
         if self.copy {
             files.par_iter().for_each(|f| f.duplicate(history.clone()));
         }
+        let conn = connect_db().await;
+        File::add_many(&conn, &files).await;
         0
     }
 
