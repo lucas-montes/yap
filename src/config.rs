@@ -193,6 +193,7 @@ impl Config {
             let db = Database::open(default_name).unwrap();
             let conn = db.connect().unwrap();
             conn.execute(&query, ()).await.unwrap();
+            self.local = default_name.into();
         }
         self
     }
@@ -219,11 +220,19 @@ impl Config {
         self
     }
 
+    async fn create_history(&self) {
+        let history_path = Path::new(".yap/history");
+        if !history_path.exists() {
+            std::fs::create_dir(history_path).unwrap()
+        }
+    }
+
     async fn init() {
         let mut file_config = Config::new();
         let client = TursoClient::new().locations();
 
         file_config.set_default_location(&client).await;
+        file_config.create_history().await;
 
         let client = client.organizations();
         file_config.set_default_organization(&client).await;

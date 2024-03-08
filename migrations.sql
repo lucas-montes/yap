@@ -14,30 +14,9 @@ CREATE TABLE files (
     FOREIGN KEY (previous) REFERENCES files_changes(id)
 );
 
-CREATE TABLE files_changes (
-    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    next INTEGER,
-    current INTEGER,
-    path VARCHAR(150) NOT NULL,
-    analysis VARCHAR(150) NOT NULL,
-    UNIQUE (id),
-    FOREIGN KEY (current) REFERENCES files(id),
-    FOREIGN KEY (next) REFERENCES files(id)
-);
-
 CREATE TRIGGER update_files_timestamp
 AFTER UPDATE ON files
 FOR EACH ROW
 BEGIN
     UPDATE files SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
-
-CREATE TRIGGER update_files_changes_timestamp
-AFTER UPDATE ON files_changes
-FOR EACH ROW
-BEGIN
-    UPDATE files SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.file_id;
-END;
-

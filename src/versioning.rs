@@ -6,13 +6,9 @@ use hex::ToHex;
 use libsql::{de, params, Connection, Database, Row, Rows};
 use menva::get_env;
 use meowhash::MeowHasher;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    config::Config,
-    turso::{DatabasesPlatform, GroupsPlatform, RetrievedDatabase, TursoClient},
-};
+use crate::{config::Config, turso::TursoClient};
 
 struct RowsIter<'a> {
     rows: &'a mut Rows,
@@ -35,12 +31,6 @@ impl<'a> Iterator for RowsIter<'a> {
     }
 }
 
-fn compress_file(input: &[u8], level: i32) {
-    let compressed = zstd::encode_all(input, level).unwrap();
-    let decoded: Vec<u8> = zstd::decode_all(compressed.as_slice()).unwrap();
-    let decoded_text = std::str::from_utf8(&decoded).unwrap();
-}
-
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct File {
     id: u32,
@@ -52,7 +42,6 @@ pub struct File {
     previous: Option<u32>,
     path: String,
     size: u64,
-    local: String,
 }
 
 impl File {
@@ -72,14 +61,10 @@ impl File {
         fs::copy(&self.path, &history).unwrap();
     }
 
-    pub fn remotes(&self) -> Vec<&str> {
-        self.remotes.split(",").collect()
-    }
-
     fn to_insert_query(&self) -> String {
         format!(
-            "INSERT INTO files (hash, path, size, local) VALUES ('{}', '{}', {}, '{}')",
-            &self.hash, &self.path, &self.size, &self.local,
+            "INSERT INTO files (hash, path, size) VALUES ('{}', '{}', {})",
+            &self.hash, &self.path, &self.size
         )
     }
 
@@ -91,50 +76,6 @@ impl File {
             .join(";");
         stmts.push_str("end;");
         let _result = conn.execute_batch(&stmts).await.unwrap();
-    }
-
-    async fn create(conn: &Connection, hash: &str, path: &str) -> Result<(), libsql::Error> {
-        let r = conn
-            .execute(
-                "INSERT INTO files (hash, path) VALUES (?1, ?2)",
-                params![hash, path],
-            )
-            .await?;
-        println!("result for {path} {r} in create");
-        Ok(())
-    }
-
-    async fn get_by_id(conn: &Connection, id: u32) -> Option<File> {
-        let mut result = conn
-            .query("SELECT * FROM files WHERE id = ?1", params![id])
-            .await
-            .unwrap();
-
-        result
-            .next()
-            .unwrap()
-            .and_then(|r| de::from_row(&r).expect("no row found in get by id"))
-    }
-
-    async fn update(conn: &Connection, id: u32, new_path: &str) -> Result<(), libsql::Error> {
-        conn.execute(
-            "UPDATE files SET path = ?1 WHERE id = ?2",
-            params![new_path, id],
-        )
-        .await?;
-        Ok(())
-    }
-
-    async fn delete_by_id(conn: &Connection, id: u32) -> Result<(), libsql::Error> {
-        conn.execute("DELETE FROM Files WHERE id = ?1", params![id])
-            .await?;
-        Ok(())
-    }
-    async fn get_all(conn: &Connection) -> Result<Vec<File>, libsql::Error> {
-        let mut results = conn.query("SELECT * FROM files", ()).await?;
-        Ok(RowsIter::new(&mut results)
-            .map(|r| de::from_row::<File>(&r).unwrap())
-            .collect::<Vec<File>>())
     }
 }
 
