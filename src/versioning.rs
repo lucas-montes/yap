@@ -9,40 +9,18 @@ use std::{fs, path::PathBuf};
 use crate::config::Author;
 use crate::config::Config;
 
-struct RowsIter<'a> {
-    rows: &'a mut Rows,
-}
+struct Branch {}
 
-impl<'a> RowsIter<'a> {
-    fn new(rows: &'a mut Rows) -> Self {
-        Self { rows }
-    }
-}
-
-impl<'a> Iterator for RowsIter<'a> {
-    type Item = Row;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.rows.next() {
-            Ok(row) => row,
-            Err(err) => panic!("some error in the iterator getting the next row: {err:?}"),
-        }
-    }
-}
-
-struct Branch{}
-
-struct FileTracked{
+struct FileTracked {
     id: u32,
     name: String,
     //TODO: maybe use a VecDeque
     branches: Vec<Branch>,
-    versions: Vec<Commit>
+    versions: Vec<Commit>,
 }
 
-struct Tracked{
-files: Vec<FileTracked>
-
+struct Tracked {
+    files: Vec<FileTracked>,
 }
 
 struct FileHistory {
