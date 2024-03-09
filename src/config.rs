@@ -6,7 +6,6 @@ use std::{fs::File, path::Path};
 use clap::{Args, Subcommand};
 use libsql::Database;
 use serde::{Deserialize, Serialize};
-use toml::value::Table;
 
 use crate::{
     enums::ColorWhen,
@@ -14,30 +13,6 @@ use crate::{
         DatabasesPlatform, GroupsPlatform, LocationsPlatform, OrganizationsPlatform, TursoClient,
     },
 };
-
-#[derive(Debug, Deserialize)]
-struct Core {
-    remote: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct RemoteConfig {
-    url: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct DvcConfig {
-    core: Core,
-
-    #[serde(flatten)]
-    remotes: Table,
-}
-
-impl DvcConfig {
-    pub fn new() -> Self {
-        toml_to_struct(".dvc")
-    }
-}
 
 #[derive(Debug, Args)]
 #[command(args_conflicts_with_subcommands = true)]
@@ -66,8 +41,6 @@ pub enum ConfigCommands {
     Get(Config),
     /// Remove configurations
     Remove(Config),
-    /// Validate your configurations
-    Validate,
     /// Creates the values in the configurations file if they dont exists. In case that some
     /// informations may be empty they will be filled if possible
     Init,
@@ -80,7 +53,6 @@ impl ConfigCommands {
             ConfigCommands::Set(args) => args.set().await,
             ConfigCommands::Get(args) => args.get().await,
             ConfigCommands::Remove(args) => args.remove().await,
-            ConfigCommands::Validate => Config::validate().await,
             ConfigCommands::Init => Config::init().await,
         };
         0
@@ -111,29 +83,29 @@ pub struct Config {
     #[arg(short, long, required = false)]
     #[serde(default)]
     pub location: String,
+    // TODO: maybe the attributes below should be able to be passed by stdin
+    #[clap(skip)]
+    #[serde(default)]
+    pub history: String,
     #[clap(skip)]
     #[serde(default)]
     pub author: Author,
 }
 
-fn check_for_root() {
-    let current_dir = std::env::current_dir().unwrap();
-    //current_dir.push(".yap/");
-
-    match Path::new(".yap").exists() {
-        true => (),
-        false => panic!("oupsi daisy no you are not in the root buddy"),
-    }
-}
-
-// lets enfore being in the root of the project to launch the cli for the moment
 impl Config {
-    pub fn new() -> Self {
-        check_for_root();
+    fn check_for_root() {
+        match Path::new(".yap").exists() {
+            true => (),
+            false => panic!("oupsi daisy no you are not in the root buddy"),
+        }
+    }
+
+    pub fn new() -> Config {
+        // lets enfore being in the root of the project to launch the cli for the moment
+        // TODO: do something better to check and be in root. Maybe something like git
+        Config::check_for_root();
         toml_to_struct(".yap/.config")
     }
-
-    async fn validate() {}
 
     async fn set_default_location(&mut self, client: &TursoClient<LocationsPlatform>) -> &mut Self {
         if self.location.is_empty() {
@@ -144,6 +116,7 @@ impl Config {
         }
         self
     }
+
     async fn set_default_organization(
         &mut self,
         client: &TursoClient<OrganizationsPlatform>,
@@ -161,6 +134,7 @@ impl Config {
         }
         self
     }
+
     async fn set_default_group(&mut self, client: &TursoClient<GroupsPlatform>) -> &mut Self {
         // if we delete our only database related to a group it seems that it deletes the group too
         if self.group.is_empty() | self.remote.is_empty() {
@@ -181,6 +155,7 @@ impl Config {
         }
         self
     }
+
     async fn set_default_local_db(&mut self) -> &mut Self {
         if !self.local.is_file() {
             let default_name = ".yap/local.db";
@@ -197,6 +172,7 @@ impl Config {
         }
         self
     }
+
     async fn set_default_remote_db(
         &mut self,
         client: &TursoClient<DatabasesPlatform>,
@@ -220,11 +196,20 @@ impl Config {
         self
     }
 
-    async fn create_history(&self) {
+    async fn set_default_history(&mut self) -> &mut Self{
         let history_path = Path::new(".yap/history");
         if !history_path.exists() {
             std::fs::create_dir(history_path).unwrap()
         }
+        self
+    }
+
+    pub async fn new_current_history(&self) -> PathBuf {
+        let mut current_history = PathBuf::from(self.history.clone());
+        let now = chrono::offset::Local::now().timestamp().to_string();
+        current_history.push(now);
+        std::fs::create_dir_all(&current_history).unwrap();
+        current_history
     }
 
     async fn init() {
@@ -232,7 +217,7 @@ impl Config {
         let client = TursoClient::new().locations();
 
         file_config.set_default_location(&client).await;
-        file_config.create_history().await;
+        file_config.set_default_history().await;
 
         let client = client.organizations();
         file_config.set_default_organization(&client).await;

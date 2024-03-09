@@ -1,5 +1,5 @@
 use hex::ToHex;
-use libsql::{de, params, Connection, Database, Row, Rows};
+use libsql::{Connection, Database, Row, Rows};
 use menva::get_env;
 use meowhash::MeowHasher;
 use serde::{Deserialize, Serialize};

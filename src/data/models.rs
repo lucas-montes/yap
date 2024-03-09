@@ -1,7 +1,5 @@
 use std::fs;
-use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
-use std::time::SystemTime;
 
 use crate::config::Config;
 use crate::enums::ColorWhen;
@@ -102,19 +100,11 @@ pub struct AddData {
     copy: bool,
 }
 
-fn create_path_to_history() -> PathBuf {
-    let mut current_dir = std::env::current_dir().unwrap();
-    current_dir.push(".yap/history");
-    let now = chrono::offset::Local::now().timestamp();
-    current_dir.push(format!("{now:?}"));
-    fs::create_dir_all(&current_dir).unwrap();
-    current_dir
-}
 
 impl AddData {
     async fn run(&self, config: &Config) -> i16 {
         //TODO: check if files already exists before running everything
-        let history = create_path_to_history();
+        let history = config.new_current_history().await;
         let files: Vec<File> = self
             .paths
             .par_iter()
