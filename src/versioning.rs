@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::os::unix::fs::MetadataExt;
 use std::{fs, path::PathBuf};
 
-use crate::{config::Config, turso::TursoClient};
+use crate::config::Author;
+use crate::config::Config;
 
 struct RowsIter<'a> {
     rows: &'a mut Rows,
@@ -26,6 +27,56 @@ impl<'a> Iterator for RowsIter<'a> {
             Ok(row) => row,
             Err(err) => panic!("some error in the iterator getting the next row: {err:?}"),
         }
+    }
+}
+
+pub struct History {
+    path: PathBuf,
+    commits: Vec<Commit>,
+}
+
+impl History {
+    pub fn from<T: AsRef<std::ffi::OsStr>>(p: &T) -> Self {
+        let path = PathBuf::from(p);
+        let commits = Self::get_commits(&path);
+        Self {
+            path: path,
+            commits: commits,
+        }
+    }
+    pub async fn new_current_history(&self) -> PathBuf {
+        // TODO: find a better name
+        let mut current_history = self.path.clone();
+        let now = chrono::offset::Local::now().timestamp().to_string();
+        current_history.push(now);
+        std::fs::create_dir(&current_history).unwrap();
+        current_history
+    }
+    fn get_commits(path: &PathBuf) -> Vec<Commit> {
+        std::fs::read_dir(path)
+            .expect("Unable to get the local history commits")
+            .map(Commit::from)
+            .collect()
+    }
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
+pub struct Commit {
+    id: u32,
+    created_at: String,
+    updated_at: String,
+    message: String,
+    git_commit: String,
+    timestamp: i64,
+    file_from_id: u32,
+    file_to_id: u32,
+    diff_id: u32,
+    author: Author,
+}
+
+impl Commit {
+    pub fn from<T>(p: T) -> Self {
+        todo!()
     }
 }
 
@@ -56,7 +107,8 @@ impl File {
     pub fn duplicate(&self, mut history: PathBuf) {
         history.push(&self.path);
         let origin = std::fs::canonicalize(&self.path).expect("Unable to canonicalize data origin");
-        fs::create_dir_all(&history.parent().expect("Data has no parent")).expect("Couldn't create dirs");
+        fs::create_dir_all(&history.parent().expect("Data has no parent"))
+            .expect("Couldn't create dirs");
         fs::copy(origin, &history).expect("Couldn't copy the file");
     }
 
@@ -91,14 +143,15 @@ pub async fn connect_db() -> Connection {
 
 async fn sync_remote(config: &Config) {
     let token = get_env("DB_TOKEN");
-    let client = TursoClient::new().databases();
     println!("opening db");
     let db = Database::open_with_remote_sync(config.local.to_str().unwrap(), &config.remote, token)
         .await
         .unwrap();
     println!("db opened");
-    let conn = db.connect().unwrap();
+    let _conn = db.connect().unwrap();
     println!("synquing");
     let r = db.sync().await;
     println!("{r:?}");
 }
+
+struct RetentionPolicy{}

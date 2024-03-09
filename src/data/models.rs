@@ -86,58 +86,48 @@ impl DataCommands {
     }
 }
 
+fn paths_to_files(paths: &Vec<PathBuf>) -> Vec<File> {
+    paths.par_iter().flat_map(handle_path).collect()
+}
+
+fn handle_path(path: &PathBuf) -> Vec<File> {
+    if path.is_dir() {
+        return fs::read_dir(path)
+            .unwrap()
+            .flat_map(|p| handle_path(&p.unwrap().path()))
+            .collect();
+    }
+    let file = File::new(&path);
+    vec![file]
+}
+
 #[derive(Debug, Args, Clone)]
 pub struct AddData {
     #[arg(short, long,num_args = 1..)]
     paths: Vec<PathBuf>,
-    #[arg(
-        short,
-        long,
-        default_value_t = true,
-        required = false,
-        help = "Set to true so a copy of the file is created after each commit to keep track of the changes"
-    )]
-    copy: bool,
 }
-
 
 impl AddData {
     async fn run(&self, config: &Config) -> i16 {
         //TODO: check if files already exists before running everything
-        let history = config.new_current_history().await;
-        let files: Vec<File> = self
-            .paths
-            .par_iter()
-            .flat_map(AddData::handle_path)
-            .collect();
-        if self.copy {
-            files.par_iter().for_each(|f| f.duplicate(history.clone()));
-        }
+        let history = config.history().new_current_history().await;
+        let files = paths_to_files(&self.paths);
+        files.par_iter().for_each(|f| f.duplicate(history.clone()));
         let conn = connect_db().await;
         File::add_many(&conn, &files).await;
         0
-    }
-
-    fn handle_path(path: &PathBuf) -> Vec<File> {
-        if path.is_dir() {
-            return fs::read_dir(path)
-                .unwrap()
-                .flat_map(|p| AddData::handle_path(&p.unwrap().path()))
-                .collect();
-        }
-        let file = File::new(&path);
-        vec![file]
     }
 }
 
 #[derive(Debug, Args, Clone)]
 pub struct CommitData {
     #[arg(short, long, required = false)]
-    paths: Vec<String>,
+    paths: Vec<PathBuf>,
 }
 
 impl CommitData {
     async fn run(&self) -> i16 {
+        let _files = paths_to_files(&self.paths);
         0
     }
 }
@@ -145,7 +135,7 @@ impl CommitData {
 #[derive(Debug, Args, Clone)]
 pub struct RemoveData {
     #[arg(short, long)]
-    paths: Vec<String>,
+    paths: Vec<PathBuf>,
 
     // Remove the files permanently. Meaning that it not only remove them from the source control
     // but also deletes them on the remote storage.
@@ -155,7 +145,15 @@ pub struct RemoveData {
 
 impl RemoveData {
     async fn run(&self, operator: &Operator) -> i16 {
-        match operator.remove(self.paths.clone()).await {
+        match operator
+            .remove(
+                self.paths
+                    .iter()
+                    .map(|f| f.to_str().unwrap().to_owned())
+                    .collect(),
+            )
+            .await
+        {
             Ok(_) => 0,
             Err(err) => panic!("{:?}", err),
         }
@@ -165,7 +163,7 @@ impl RemoveData {
 #[derive(Debug, Args, Clone)]
 pub struct GetData {
     #[arg(short, long)]
-    paths: Vec<String>,
+    paths: Vec<PathBuf>,
 }
 
 impl GetData {
@@ -180,7 +178,7 @@ impl GetData {
 #[derive(Debug, Args, Clone)]
 pub struct PushData {
     #[arg(short, long)]
-    paths: Vec<String>,
+    paths: Vec<PathBuf>,
 }
 
 impl PushData {

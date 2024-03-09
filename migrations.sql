@@ -17,16 +17,17 @@ CREATE TABLE commits (
     author VARCHAR(150) ,
     git_commit VARCHAR(150) ,
     message TEXT,
-    file_from INTEGER NOT NULL,
-    file_to INTEGER NOT NULL,
-    analysis INTEGER,
+    timestamp INTEGER NOT NULL,
+    file_from_id INTEGER NOT NULL,
+    file_to_id INTEGER NOT NULL,
+    diff_id INTEGER,
     UNIQUE (id),
-    FOREIGN KEY (file_from) REFERENCES files(id),
-    FOREIGN KEY (file_to) REFERENCES files(id),
-    FOREIGN KEY (analysis) REFERENCES analysis(id),
+    FOREIGN KEY (file_from_id) REFERENCES files(id),
+    FOREIGN KEY (file_to_id) REFERENCES files(id),
+    FOREIGN KEY (diff_id) REFERENCES diffs(id),
 );
 
-CREATE TABLE analysis ( 
+CREATE TABLE diffs ( 
     id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

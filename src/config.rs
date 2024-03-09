@@ -7,11 +7,11 @@ use clap::{Args, Subcommand};
 use libsql::Database;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    enums::ColorWhen,
-    turso::{
-        DatabasesPlatform, GroupsPlatform, LocationsPlatform, OrganizationsPlatform, TursoClient,
-    },
+use crate::enums::ColorWhen;
+use crate::versioning::History;
+
+use turso::{
+    DatabasesPlatform, GroupsPlatform, LocationsPlatform, OrganizationsPlatform, TursoClient,
 };
 
 #[derive(Debug, Args)]
@@ -86,14 +86,19 @@ pub struct Config {
     // TODO: maybe the attributes below should be able to be passed by stdin
     #[clap(skip)]
     #[serde(default)]
-    pub history: String,
+    history: String,
     #[clap(skip)]
     #[serde(default)]
     pub author: Author,
 }
 
 impl Config {
+    pub fn history(&self) -> History {
+        History::from(&self.history)
+    }
     fn check_for_root() {
+        // TODO: we are testing to track single files.once finished change it
+        // we use the general .yap to track files whereever we are
         match Path::new(".yap").exists() {
             true => (),
             false => panic!("oupsi daisy no you are not in the root buddy"),
@@ -196,20 +201,15 @@ impl Config {
         self
     }
 
-    async fn set_default_history(&mut self) -> &mut Self{
-        let history_path = Path::new(".yap/history");
+    async fn set_default_history(&mut self) -> &mut Self {
+        if self.history.is_empty() {
+            self.history = ".yap/history".to_string();
+        }
+        let history_path = Path::new(&self.history);
         if !history_path.exists() {
             std::fs::create_dir(history_path).unwrap()
         }
         self
-    }
-
-    pub async fn new_current_history(&self) -> PathBuf {
-        let mut current_history = PathBuf::from(self.history.clone());
-        let now = chrono::offset::Local::now().timestamp().to_string();
-        current_history.push(now);
-        std::fs::create_dir_all(&current_history).unwrap();
-        current_history
     }
 
     async fn init() {

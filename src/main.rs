@@ -4,7 +4,6 @@ mod data;
 mod documentation;
 mod enums;
 mod repro;
-mod turso;
 mod versioning;
 
 use cli::Cli;
