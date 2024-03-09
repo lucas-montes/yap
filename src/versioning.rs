@@ -30,6 +30,27 @@ impl<'a> Iterator for RowsIter<'a> {
     }
 }
 
+struct Branch{}
+
+struct FileTracked{
+    id: u32,
+    name: String,
+    //TODO: maybe use a VecDeque
+    branches: Vec<Branch>,
+    versions: Vec<Commit>
+}
+
+struct Tracked{
+files: Vec<FileTracked>
+
+}
+
+struct FileHistory {
+    name: String,
+    remote: String,
+    history: History,
+}
+
 pub struct History {
     path: PathBuf,
     commits: Vec<Commit>,
@@ -44,6 +65,7 @@ impl History {
             commits: commits,
         }
     }
+
     pub async fn new_current_history(&self) -> PathBuf {
         // TODO: find a better name
         let mut current_history = self.path.clone();
@@ -52,6 +74,7 @@ impl History {
         std::fs::create_dir(&current_history).unwrap();
         current_history
     }
+
     fn get_commits(path: &PathBuf) -> Vec<Commit> {
         std::fs::read_dir(path)
             .expect("Unable to get the local history commits")
@@ -154,4 +177,4 @@ async fn sync_remote(config: &Config) {
     println!("{r:?}");
 }
 
-struct RetentionPolicy{}
+struct RetentionPolicy {}
