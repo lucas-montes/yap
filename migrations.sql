@@ -4,14 +4,35 @@ CREATE TABLE files (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     remotes TEXT NOT NULL,
-    next INTEGER,
-    previous INTEGER,
     path VARCHAR(150) NOT NULL,
     size INTEGER,
     UNIQUE (hash),
     UNIQUE (id),
-    FOREIGN KEY (next) REFERENCES files_changes(id),
-    FOREIGN KEY (previous) REFERENCES files_changes(id)
+);
+
+CREATE TABLE commits ( 
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    author VARCHAR(150) ,
+    git_commit VARCHAR(150) ,
+    message TEXT,
+    file_from INTEGER NOT NULL,
+    file_to INTEGER NOT NULL,
+    analysis INTEGER,
+    UNIQUE (id),
+    FOREIGN KEY (file_from) REFERENCES files(id),
+    FOREIGN KEY (file_to) REFERENCES files(id),
+    FOREIGN KEY (analysis) REFERENCES analysis(id),
+);
+
+CREATE TABLE analysis ( 
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    git_commit VARCHAR(150) ,
+    path VARCHAR(150) NOT NULL,
+    UNIQUE (id),
 );
 
 CREATE TRIGGER update_files_timestamp

@@ -1,12 +1,10 @@
-use std::os::unix::fs::MetadataExt;
-use std::time::SystemTime;
-use std::{fs, path::PathBuf};
-
 use hex::ToHex;
 use libsql::{de, params, Connection, Database, Row, Rows};
 use menva::get_env;
 use meowhash::MeowHasher;
 use serde::{Deserialize, Serialize};
+use std::os::unix::fs::MetadataExt;
+use std::{fs, path::PathBuf};
 
 use crate::{config::Config, turso::TursoClient};
 
@@ -38,19 +36,18 @@ pub struct File {
     created_at: String,
     updated_at: String,
     remotes: String,
-    next: Option<u32>,
-    previous: Option<u32>,
     path: String,
     size: u64,
 }
 
 impl File {
     pub fn new(path: &PathBuf) -> Self {
-        let data = fs::read(path).unwrap();
-        let file_meta = path.metadata().unwrap();
+        let data = fs::read(path).expect("Unable to read the data file");
+        let file_meta = path.metadata().expect("File has no metadata");
+        let path = path.to_str().unwrap().to_owned();
         Self {
             hash: MeowHasher::hash(&data).into_bytes().encode_hex::<String>(),
-            path: path.to_str().unwrap().to_owned(),
+            path: path,
             size: file_meta.size(),
             ..Self::default()
         }
@@ -58,7 +55,9 @@ impl File {
 
     pub fn duplicate(&self, mut history: PathBuf) {
         history.push(&self.path);
-        fs::copy(&self.path, &history).unwrap();
+        let origin = std::fs::canonicalize(&self.path).expect("Unable to canonicalize data origin");
+        fs::create_dir_all(&history.parent().expect("Data has no parent")).expect("Couldn't create dirs");
+        fs::copy(origin, &history).expect("Couldn't copy the file");
     }
 
     fn to_insert_query(&self) -> String {
@@ -75,7 +74,7 @@ impl File {
             .collect::<Vec<String>>()
             .join(";");
         stmts.push_str("end;");
-        let _result = conn.execute_batch(&stmts).await.unwrap();
+        let _result = conn.execute_batch(&stmts).await.expect("Cannot save to DB");
     }
 }
 

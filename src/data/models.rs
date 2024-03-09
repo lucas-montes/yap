@@ -114,16 +114,11 @@ fn create_path_to_history() -> PathBuf {
 impl AddData {
     async fn run(&self, config: &Config) -> i16 {
         //TODO: check if files already exists before running everything
-        let root_project = std::env::current_dir().unwrap();
         let history = create_path_to_history();
         let files: Vec<File> = self
             .paths
             .par_iter()
-            .flat_map(|p| {
-                let mut rp = root_project.clone();
-                rp.push(p);
-                AddData::handle_path(&rp)
-            })
+            .flat_map(AddData::handle_path)
             .collect();
         if self.copy {
             files.par_iter().for_each(|f| f.duplicate(history.clone()));
