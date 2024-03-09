@@ -1,5 +1,5 @@
 use hex::ToHex;
-use libsql::{Connection, Database, Row, Rows};
+use libsql::{Connection, Database};
 use menva::get_env;
 use meowhash::MeowHasher;
 use serde::{Deserialize, Serialize};
@@ -9,29 +9,8 @@ use std::{fs, path::PathBuf};
 use crate::config::Author;
 use crate::config::Config;
 
-struct Branch {}
-
-struct FileTracked {
-    id: u32,
-    name: String,
-    //TODO: maybe use a VecDeque
-    branches: Vec<Branch>,
-    versions: Vec<Commit>,
-}
-
-struct Tracked {
-    files: Vec<FileTracked>,
-}
-
-struct FileHistory {
-    name: String,
-    remote: String,
-    history: History,
-}
 
 pub struct History {
-    path: PathBuf,
-    commits: Vec<Commit>,
 }
 
 impl History {
@@ -133,7 +112,6 @@ impl File {
 
 pub async fn run() -> i16 {
     let config = Config::new();
-    sync_remote(&config).await;
     0
 }
 
@@ -141,18 +119,3 @@ pub async fn connect_db() -> Connection {
     let db = Database::open(".yap/local.db").unwrap();
     db.connect().unwrap()
 }
-
-async fn sync_remote(config: &Config) {
-    let token = get_env("DB_TOKEN");
-    println!("opening db");
-    let db = Database::open_with_remote_sync(config.local.to_str().unwrap(), &config.remote, token)
-        .await
-        .unwrap();
-    println!("db opened");
-    let _conn = db.connect().unwrap();
-    println!("synquing");
-    let r = db.sync().await;
-    println!("{r:?}");
-}
-
-struct RetentionPolicy {}

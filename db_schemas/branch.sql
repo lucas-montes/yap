@@ -1,0 +1,4 @@
+CREATE TABLE files (
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    remote VARCHAR(150) NOT NULL,
+);
