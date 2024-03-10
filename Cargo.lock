@@ -3601,6 +3601,8 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "clap",
+ "futures",
+ "futures-util",
  "hex",
  "libsql 0.2.0",
  "libsql-client",

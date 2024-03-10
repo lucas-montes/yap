@@ -1,9 +1,10 @@
+use futures::stream::StreamExt;
 use std::fs;
 use std::path::PathBuf;
 
 use crate::config::Config;
 use crate::enums::ColorWhen;
-use crate::versioning::{connect_db, File};
+use crate::versioning::File;
 
 use clap::{Args, Subcommand};
 use opendal::services::Gcs;
@@ -49,8 +50,6 @@ pub enum DataCommands {
 }
 
 impl DataCommands {
-    fn get_credentials() {}
-    fn get_config() {}
     fn create_operator() -> Operator {
         // create backend builder
         let mut builder = Gcs::default();
@@ -86,18 +85,14 @@ impl DataCommands {
     }
 }
 
-fn paths_to_files(paths: &Vec<PathBuf>) -> Vec<File> {
-    paths.par_iter().flat_map(handle_path).collect()
-}
-
-fn handle_path(path: &PathBuf) -> Vec<File> {
+fn unwrap_path(path: &PathBuf, branch: &str, timestamp: &i64) -> Vec<File> {
     if path.is_dir() {
         return fs::read_dir(path)
             .unwrap()
-            .flat_map(|p| handle_path(&p.unwrap().path()))
+            .flat_map(|p| unwrap_path(&p.unwrap().path(), branch, timestamp))
             .collect();
     }
-    let file = File::new(&path);
+    let file = File::new(path, branch, timestamp);
     vec![file]
 }
 
@@ -105,16 +100,25 @@ fn handle_path(path: &PathBuf) -> Vec<File> {
 pub struct AddData {
     #[arg(short, long,num_args = 1..)]
     paths: Vec<PathBuf>,
+
+    #[arg(short, long, default_value = "master")]
+    branch: String,
 }
 
 impl AddData {
     async fn run(&self, config: &Config) -> i16 {
         //TODO: check if files already exists before running everything
-        let history = config.history().new_current_history().await;
-        let files = paths_to_files(&self.paths);
-        files.par_iter().for_each(|f| f.duplicate(history.clone()));
-        let conn = connect_db().await;
-        File::add_many(&conn, &files).await;
+        let timestamp = chrono::offset::Local::now().timestamp();
+
+        let files: Vec<File> = self
+            .paths
+            .par_iter()
+            .flat_map(|p| unwrap_path(p, &self.branch, &timestamp))
+            .collect();
+
+        futures::stream::iter(&files)
+            .for_each(|f| async move { f.create_snapshot(config).await })
+            .await;
         0
     }
 }
@@ -123,11 +127,17 @@ impl AddData {
 pub struct CommitData {
     #[arg(short, long, required = false)]
     paths: Vec<PathBuf>,
+
+    #[arg(short, long, default_value = "master")]
+    branch: String,
 }
 
 impl CommitData {
     async fn run(&self) -> i16 {
-        let _files = paths_to_files(&self.paths);
+        let timestamp = chrono::offset::Local::now().timestamp();
+        let _: Vec<File> =self.paths
+            .par_iter()
+            .flat_map(|p| unwrap_path(p, &self.branch, &timestamp)).collect();
         0
     }
 }

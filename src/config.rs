@@ -6,9 +6,9 @@ use std::{fs::File, path::Path};
 use clap::{Args, Subcommand};
 use libsql::Database;
 use serde::{Deserialize, Serialize};
+use tokio::fs;
 
 use crate::enums::ColorWhen;
-use crate::versioning::History;
 
 use turso::{
     DatabasesPlatform, GroupsPlatform, LocationsPlatform, OrganizationsPlatform, TursoClient,
@@ -86,16 +86,17 @@ pub struct Config {
     // TODO: maybe the attributes below should be able to be passed by stdin
     #[clap(skip)]
     #[serde(default)]
-    history: String,
+    pub history: String,
     #[clap(skip)]
     #[serde(default)]
     pub author: Author,
 }
 
 impl Config {
-    pub fn history(&self) -> History {
-        History::from(&self.history)
+    pub fn logbooks(&self)->String{
+        String::from(".yap/logbooks")
     }
+    
     fn check_for_root() {
         // TODO: we are testing to track single files.once finished change it
         // we use the general .yap to track files whereever we are
@@ -214,6 +215,9 @@ impl Config {
 
     async fn init() {
         let mut file_config = Config::new();
+
+        fs::create_dir_all(file_config.logbooks()).await.expect("cant create logbooks dir");
+
         let client = TursoClient::new().locations();
 
         file_config.set_default_location(&client).await;
