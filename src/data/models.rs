@@ -1,10 +1,12 @@
 use futures::stream::StreamExt;
-use std::fs;
-use std::path::PathBuf;
 
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use crate::compare::compare;
 use crate::config::Config;
 use crate::enums::ColorWhen;
-use crate::versioning::File;
+use crate::versioning::{Events, FileFacade, FileFacadeFactory, Logbook};
 
 use clap::{Args, Subcommand};
 use opendal::services::Gcs;
@@ -76,24 +78,13 @@ impl DataCommands {
         let op = Self::create_operator();
         match self {
             DataCommands::Add(args) => args.run(&config).await,
-            DataCommands::Commit(args) => args.run().await,
+            DataCommands::Commit(args) => args.run(&config).await,
             DataCommands::Push(args) => args.run(&op).await,
             DataCommands::Get(args) => args.run(&op).await,
             DataCommands::Remove(args) => args.run(&op).await,
         };
         0
     }
-}
-
-fn unwrap_path(path: &PathBuf, branch: &str, timestamp: &i64) -> Vec<File> {
-    if path.is_dir() {
-        return fs::read_dir(path)
-            .unwrap()
-            .flat_map(|p| unwrap_path(&p.unwrap().path(), branch, timestamp))
-            .collect();
-    }
-    let file = File::new(path, branch, timestamp);
-    vec![file]
 }
 
 #[derive(Debug, Args, Clone)]
@@ -107,19 +98,28 @@ pub struct AddData {
 
 impl AddData {
     async fn run(&self, config: &Config) -> i16 {
-        //TODO: check if files already exists before running everything
-        let timestamp = chrono::offset::Local::now().timestamp();
+        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, &config.logbooks);
 
-        let files: Vec<File> = self
-            .paths
-            .par_iter()
-            .flat_map(|p| unwrap_path(p, &self.branch, &timestamp))
-            .collect();
+        let user_logbook = Arc::new(config.user_logbook().await);
 
-        futures::stream::iter(&files)
-            .for_each(|f| async move { f.create_snapshot(config).await })
+        // Then, when capturing user_logbook in your async closure:
+        futures::stream::iter(files)
+            .for_each(|f| {
+                let user_logbook = Arc::clone(&user_logbook);
+                async move {
+                    self.handle_file(&f, user_logbook, &config.history).await;
+                }
+            })
             .await;
         0
+    }
+
+    async fn handle_file(&self, file: &FileFacade, user_logbook: Arc<Logbook>, history: &str) {
+        let user_logbook = user_logbook;
+        if !user_logbook.file_is_tracked(file).await {
+            let file = file.duplicate(history).insert_snapshot().await;
+            user_logbook.insert_log(file, &Events::Add);
+        };
     }
 }
 
@@ -133,11 +133,12 @@ pub struct CommitData {
 }
 
 impl CommitData {
-    async fn run(&self) -> i16 {
-        let timestamp = chrono::offset::Local::now().timestamp();
-        let _: Vec<File> =self.paths
-            .par_iter()
-            .flat_map(|p| unwrap_path(p, &self.branch, &timestamp)).collect();
+    async fn run(&self, config: &Config) -> i16 {
+        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, &config.logbooks);
+
+        futures::stream::iter(files)
+            .for_each(|f| async move { compare(&f, config).await })
+            .await;
         0
     }
 }

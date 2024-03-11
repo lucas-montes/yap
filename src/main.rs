@@ -1,4 +1,5 @@
 mod cli;
+mod compare;
 mod config;
 mod data;
 mod documentation;

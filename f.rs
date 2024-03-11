@@ -7,24 +7,6 @@ fn start_track_file(file: PathBuf, branch: String) {
     create_file_snapshot(file, branch);
 }
 
-fn create_branch()
-
-fn create_file_snapshot(file: pathbuf, branch: string) {
-    let timestamp = Local::now().timestamp().to_string();
-    let file_branch_db = create_local_db(format!(".yap/logbooks/{file}.db"));
-    let local_path = format!(".yap/versions/{file}/{branch}/{timestamp}");
-    create_local_copy(file, local_path);
-    file_branch_db.insert(
-        "INSERT INTO {branch} (file, size, timestamp) VALUES (?1, ?2, ?3)",
-        params![file, file.size(), timestamp],
-    );
-    let logbook = connect_to_local_logbook();
-    logbook.insert(
-        "INSERT INTO events (file, branch, timestamp, event) VALUES (?1, ?2, ?3, ?4)",
-        params![file, branch, timestamp, "ADD"],
-    );
-}
-
 fn commit_file_changes(file: pathbuf, branch: string,diff_config: DiffConfig){
     let timestamp = Local::now().timestamp().to_string();
     create_file_snapshot(file, branch);
