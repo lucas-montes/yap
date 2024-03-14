@@ -130,7 +130,6 @@ The file
 ### Add
 Starts to keep track of a file.
 It creates the first entry in the local database.
-Ask if we want to keep a copy of the files locally to compare them on commit.
 
 ### Commit
 - Creates a new entry in the database and compares the two files. 

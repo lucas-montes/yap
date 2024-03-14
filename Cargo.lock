@@ -3150,6 +3150,7 @@ dependencies = [
 name = "turso"
 version = "0.1.0"
 dependencies = [
+ "libsql 0.2.0",
  "menva",
  "reqwest",
  "serde",

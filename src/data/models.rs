@@ -11,7 +11,6 @@ use crate::versioning::{Events, FileFacade, FileFacadeFactory, Logbook};
 use clap::{Args, Subcommand};
 use opendal::services::Gcs;
 use opendal::Operator;
-use rayon::prelude::*;
 
 #[derive(Debug, Args)]
 #[command(args_conflicts_with_subcommands = true)]
@@ -98,16 +97,16 @@ pub struct AddData {
 
 impl AddData {
     async fn run(&self, config: &Config) -> i16 {
-        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, &config.logbooks);
+        let files =
+            FileFacadeFactory::new(self.paths.clone(), &self.branch, &config.logbooks_dir());
+        let user_logbook = Arc::new(Logbook::local(&config.local_db()));
 
-        let user_logbook = Arc::new(config.user_logbook().await);
-
-        // Then, when capturing user_logbook in your async closure:
         futures::stream::iter(files)
             .for_each(|f| {
                 let user_logbook = Arc::clone(&user_logbook);
                 async move {
-                    self.handle_file(&f, user_logbook, &config.history).await;
+                    self.handle_file(&f, user_logbook, &config.history_dir())
+                        .await;
                 }
             })
             .await;
@@ -115,10 +114,9 @@ impl AddData {
     }
 
     async fn handle_file(&self, file: &FileFacade, user_logbook: Arc<Logbook>, history: &str) {
-        let user_logbook = user_logbook;
-        if !user_logbook.file_is_tracked(file).await {
+        if !user_logbook.file_is_tracked(file, &Events::Add).await {
             let file = file.duplicate(history).insert_snapshot().await;
-            user_logbook.insert_log(file, &Events::Add);
+            user_logbook.insert_log(file, &Events::Add).await;
         };
     }
 }
@@ -134,7 +132,8 @@ pub struct CommitData {
 
 impl CommitData {
     async fn run(&self, config: &Config) -> i16 {
-        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, &config.logbooks);
+        let files =
+            FileFacadeFactory::new(self.paths.clone(), &self.branch, &config.logbooks_dir());
 
         futures::stream::iter(files)
             .for_each(|f| async move { compare(&f, config).await })

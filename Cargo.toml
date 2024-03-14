@@ -10,7 +10,7 @@ tracing-appender = "0.2"
 serde = { version = "1.0.196", features = ["derive"] }
 serde_json = "1.0.114"
 menva = "1.0.0"
-turso = { version = "0.1.0", path = "./turso-client" }
+turso = { version = "0.1.0", path = "./turso-client", features = ["utils"]}
 libsql = "0.2.0"
 libsql-client = "0.33.4"
 clap = { version = "4.5.1", features = ["derive", "env"] }

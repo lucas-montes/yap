@@ -4,13 +4,11 @@ use std::path::PathBuf;
 use std::{fs::File, path::Path};
 
 use clap::{Args, Subcommand};
-use libsql::{Connection, Database};
-use menva::get_env;
+use libsql::Database;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 use crate::enums::ColorWhen;
-use crate::versioning::Logbook;
 
 use turso::{
     DatabasesPlatform, GroupsPlatform, LocationsPlatform, OrganizationsPlatform, TursoClient,
@@ -72,41 +70,31 @@ pub struct Config {
     //Turso config for the databases
     #[arg(short, long, required = false)]
     #[serde(default)]
-    pub organization: String,
+    organization: String,
     #[arg(short, long, required = false)]
     #[serde(default)]
-    pub remote: String,
+    group: String,
     #[arg(short, long, required = false)]
     #[serde(default)]
-    pub group: String,
+    location: String,
     #[arg(short, long, required = false)]
     #[serde(default)]
-    pub location: String,
-    //Files history and logbooks
+    remote_db: String,
     #[arg(short, long, required = false)]
     #[serde(default)]
-    user_logbook: String,
+    local_db: String,
     #[arg(short, long, required = false)]
     #[serde(default)]
-    pub logbooks: String,
+    logbooks_dir: String,
     #[arg(short, long, required = false)]
     #[serde(default)]
-    pub history: String,
+    history_dir: String,
     #[clap(skip)]
     #[serde(default)]
-    pub author: Author,
+    author: Author,
 }
 
 impl Config {
-    pub async fn user_logbook(&self) -> Logbook {
-        let token = get_env("DB_TOKEN");
-        let db = Database::open_with_remote_sync(&self.user_logbook, &self.remote, token)
-            .await
-            .expect("unable to open to remote");
-        let conn = db.connect().expect("unable to connect to remote db");
-        Logbook::new(conn)
-    }
-
     fn check_for_root() {
         // TODO: we are testing to track single files.once finished change it
         // we use the general .yap to track files whereever we are
@@ -114,6 +102,20 @@ impl Config {
             true => (),
             false => panic!("oupsi daisy no you are not in the root buddy"),
         }
+    }
+
+    pub fn root(&self, path: &str) -> String {
+        format!(".yap/{path}")
+    }
+
+    pub fn local_db(&self) -> String {
+        self.root(&self.local_db)
+    }
+    pub fn logbooks_dir(&self) -> PathBuf {
+        PathBuf::from(self.root(&self.logbooks_dir))
+    }
+    pub fn history_dir(&self) -> String {
+        self.root(&self.history_dir)
     }
 
     pub fn new() -> Config {
@@ -153,8 +155,8 @@ impl Config {
 
     async fn set_default_group(&mut self, client: &TursoClient<GroupsPlatform>) -> &mut Self {
         // if we delete our only database related to a group it seems that it deletes the group too
-        if self.group.is_empty() | self.remote.is_empty() {
-            let default_name = "yap-default";
+        if self.group.is_empty() | self.remote_db.is_empty() {
+            let default_name = "yap-master";
             let groups = client.list(&self.organization).await.unwrap().groups;
 
             let default_group = groups.iter().find(|g| g.name == default_name);
@@ -172,20 +174,20 @@ impl Config {
         self
     }
 
-    async fn set_default_user_logbook(&mut self) -> &mut Self {
-        if self.user_logbook.is_empty() {
-            let default_name = "logbook.db";
-            let query = match tokio::fs::read_to_string("migrations.sql").await {
-                Ok(sql) => sql,
-                Err(err) => {
-                    panic!("{:?}", err);
-                }
-            };
-            let db = Database::open(default_name).unwrap();
-            let conn = db.connect().unwrap();
-            conn.execute(&query, ()).await.unwrap();
-            self.user_logbook = default_name.into();
+    async fn set_default_local_db(&mut self) -> &mut Self {
+        if self.local_db.is_empty() {
+            let local_default = "logbook.db";
+            self.local_db = local_default.to_string();
         }
+        let db = Database::open(&self.local_db()).expect("unable to open to local");
+        let conn = db.connect().expect("unable to connect to local db");
+        conn
+            .execute(
+                "CREATE TABLE IF NOT EXISTS events (file VARCHAR(150) NOT NULL, branch VARCHAR(150) NOT NULL, timestamp TIMESTAMP NOT NULL, event VARCHAR(10) NOT NULL);",
+                (),
+            )
+            .await
+            .expect("unable to create table events into user logbook");
         self
     }
 
@@ -193,12 +195,12 @@ impl Config {
         &mut self,
         client: &TursoClient<DatabasesPlatform>,
     ) -> &mut Self {
-        if self.remote.is_empty() {
-            // TODO: fin a better name for the remote db
+        if self.remote_db.is_empty() {
             let default_name = "yap-default";
             let databases = client.list(&self.organization).await.unwrap();
             let default_db = databases.databases.iter().find(|g| g.name == default_name);
             let mut remote = String::from("libsql://");
+            // TODO: change the migrations schema
             if default_db.is_some() {
                 remote.push_str(&default_db.unwrap().hostname.to_owned());
             } else {
@@ -208,16 +210,17 @@ impl Config {
                     .unwrap();
                 remote.push_str(&new_db.database.hostname.to_owned());
             }
-            self.remote = remote;
+            self.remote_db = remote;
         }
         self
     }
 
-    async fn set_default_history(&mut self) -> &mut Self {
-        if self.history.is_empty() {
-            self.history = "history".to_string();
+    async fn set_default_history_dir(&mut self) -> &mut Self {
+        if self.history_dir.is_empty() {
+            self.history_dir = "history".to_string();
         }
-        let history_path = Path::new(&self.history);
+        let history_dir = self.history_dir();
+        let history_path = Path::new(&history_dir);
         if !history_path.exists() {
             fs::create_dir_all(history_path)
                 .await
@@ -226,11 +229,12 @@ impl Config {
         self
     }
 
-    async fn set_default_logbooks(&mut self) -> &mut Self {
-        if self.logbooks.is_empty() {
-            self.logbooks = "logbooks".to_string();
+    async fn set_default_logbooks_dir(&mut self) -> &mut Self {
+        if self.logbooks_dir.is_empty() {
+            self.logbooks_dir = "logbooks".to_string();
         }
-        let logbooks_path = Path::new(&self.logbooks);
+        let logbooks_dir = self.logbooks_dir();
+        let logbooks_path = Path::new(&logbooks_dir);
         if !logbooks_path.exists() {
             fs::create_dir_all(logbooks_path)
                 .await
@@ -245,16 +249,15 @@ impl Config {
         let client = TursoClient::new().locations();
 
         file_config.set_default_location(&client).await;
-        file_config.set_default_history().await;
-        file_config.set_default_logbooks().await;
+        file_config.set_default_history_dir().await;
+        file_config.set_default_logbooks_dir().await;
+        file_config.set_default_local_db().await;
 
         let client = client.organizations();
         file_config.set_default_organization(&client).await;
 
         let client = client.groups();
         file_config.set_default_group(&client).await;
-
-        file_config.set_default_user_logbook().await;
 
         let client = client.databases();
         file_config.set_default_remote_db(&client).await;

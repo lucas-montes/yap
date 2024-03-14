@@ -1,16 +1,22 @@
 use crate::config::Config;
 use libsql::{params, Connection, Database};
-use std::{collections::VecDeque, fmt, fs, path::PathBuf};
+use menva::get_env;
+use std::{
+    collections::VecDeque,
+    env, fmt, fs,
+    path::{Path, PathBuf},
+};
+use turso::RowsIter;
 
 pub struct FileFacadeFactory {
     branch: String,
-    logbooks: String,
+    logbooks: PathBuf,
     timestamp: i64,
     stack: VecDeque<PathBuf>,
 }
 
 impl FileFacadeFactory {
-    pub fn new(paths: Vec<PathBuf>, branch: &str, logbooks: &str) -> Self {
+    pub fn new(paths: Vec<PathBuf>, branch: &str, logbooks: &PathBuf) -> Self {
         Self {
             branch: branch.to_owned(),
             logbooks: logbooks.to_owned(),
@@ -26,12 +32,12 @@ impl Iterator for FileFacadeFactory {
     fn next(&mut self) -> Option<Self::Item> {
         self.stack.pop_front().and_then(|p| {
             if p.is_dir() {
-                fs::read_dir(&p)
+                p.read_dir()
                     .unwrap()
                     .for_each(|p| self.stack.push_back(p.unwrap().path()));
             }
             Some(FileFacade::new(
-                p.to_str().expect("unable to convert to str"),
+                &p,
                 &self.branch,
                 self.timestamp,
                 &self.logbooks,
@@ -42,31 +48,37 @@ impl Iterator for FileFacadeFactory {
 
 pub struct FileFacade {
     remote: String,
-    path: String,
+    path: PathBuf,
     branch: String,
     timestamp: i64,
     conn: Connection,
 }
 
 impl FileFacade {
-    pub fn new(path: &str, branch: &str, timestamp: i64, logbooks: &str) -> Self {
+    pub fn new(path: &PathBuf, branch: &str, timestamp: i64, logbooks: &PathBuf) -> Self {
         Self {
-            path: path.to_string(),
+            path: path.to_owned(),
             branch: branch.to_string(),
             timestamp,
-            conn: Self::get_or_create_local_db(logbooks, path),
+            conn: Self::get_or_create_local_db(&logbooks, &path),
             remote: String::default(),
         }
     }
 
-    fn get_or_create_local_db(logbooks: &str, path: &str) -> Connection {
-        fs::create_dir_all(
-            PathBuf::from(format!("{}/{}.db", logbooks, path))
-                .parent()
-                .expect("no parent for local db"),
+    fn get_or_create_local_db(logbooks: &PathBuf, path: &PathBuf) -> Connection {
+        //TODO: will path always be relative?
+        let mut db_path = path.to_str().unwrap().to_string();
+        db_path.push_str(".db");
+        let final_path = logbooks.clone().join(db_path);
+        fs::create_dir_all(final_path.parent().expect("no parent for local db"))
+            .expect("unable to craete path to local db");
+        let db = Database::open(
+            &final_path
+                .to_str()
+                .expect("unable to conver to str")
+                .to_string(),
         )
-        .expect("unable to craete path to local db");
-        let db = Database::open(path).expect("unable to open local db");
+        .expect("unable to open local db");
         db.connect().expect("Unable to connect to local db")
     }
 
@@ -92,75 +104,87 @@ impl FileFacade {
         self
     }
 
-    fn original_path(&self) -> String {
-        PathBuf::from(&self.path)
-            .canonicalize()
-            .expect("unable to canonicalize")
-            .to_str()
-            .expect("unable to convert to str")
-            .to_string()
+    fn original_path(&self) -> PathBuf {
+        //TODO: will path always be relative?
+        env::current_dir().unwrap().join(&self.path)
     }
 
-    fn history_path(&self, history: &str) -> String {
-        format!(
-            "{}/{}/{}/{}",
-            history, &self.path, &self.branch, &self.timestamp
-        )
+    fn history_path(&self, history: &str) -> PathBuf {
+        //TODO: will path always be relative?
+        env::current_dir()
+            .unwrap()
+            .join(history)
+            .join(&self.path)
+            .join(&self.branch)
+            .join(Path::new(&self.timestamp.to_string()))
     }
 
     pub fn duplicate(&self, history: &str) -> &Self {
         let file = self.original_path();
         let local_path = self.history_path(history);
         // TODO: make this async?
-        let origin = std::fs::canonicalize(file).expect("Unable to canonicalize data origin");
+        println!("final path for history  {:?}", &local_path);
         fs::create_dir_all(
-            &PathBuf::from(local_path)
+            local_path
                 .parent()
                 .expect("unable to get duplciate local path parent"),
         )
         .expect("Couldn't create dirs");
-        fs::copy(origin, &local_path).expect("Couldn't copy the file");
-        self
+        fs::create_dir_all(&local_path.parent().unwrap()).unwrap();
+        match fs::copy(&file, &local_path) {
+            Ok(_) => self,
+            Err(err) => panic!("{}", err),
+        }
     }
 }
 
 pub struct Logbook {
-    conn: Connection,
+    db: Database,
 }
 
 impl Logbook {
-    pub fn new(conn: Connection) -> Self {
-        Self { conn }
+    pub fn conn(&self) -> Connection {
+        self.db.connect().expect("cant connect to db")
     }
 
-    pub async fn create_table_events(&self) {
-        self.conn
-            .execute(
-                "CREATE TABLE IF NOT EXISTS events (file VARCHAR(150) NOT NULL, branch VARCHAR(150) NOT NULL, timestamp TIMESTAMP NOT NULL, event VARCHAR(10) NOT NULL);",
-                (),
-            )
+    pub fn local(path: &str) -> Self {
+        let db = Database::open(path).expect("unable to open local");
+        Self::new(db)
+    }
+
+    pub async fn remote(local_db: &str, remote_db: &str) -> Self {
+        let token = get_env("DB_TOKEN");
+        let db = Database::open_with_remote_sync(local_db, remote_db, token)
             .await
-            .expect("unable to create table events into user logbook");
+            .expect("unable to open to remote");
+        Self::new(db)
     }
 
-    pub async fn file_is_tracked(&self, file: &FileFacade) -> bool {
-        0 == self.conn
-            .execute(
+    pub fn new(db: Database) -> Self {
+        Self { db }
+    }
+
+    pub async fn file_is_tracked(&self, file: &FileFacade, event: &Events) -> bool {
+        let mut result = self.conn()
+            .query(
                 "SELECT EXISTS(SELECT 1 FROM events WHERE file=?1 AND branch=?2 AND event=?3 LIMIT 1);",
-                params![file.path.clone(), file.branch.clone(), "ADD"],
+                (file.path.to_str().expect("unable to convert to str"), file.branch.clone(), event.to_string()),
             )
             .await
-            .expect("error executing insert")
+            .expect("error executing insert");
+        0 != RowsIter::new(&mut result)
+            .next()
+            .expect("iterator empty")
+            .get::<u32>(0)
+            .expect("couldnt get the value")
     }
 
     pub async fn insert_log(&self, file: &FileFacade, event: &Events) {
-        // TODO: move into the init function the creation of the table
-        self.create_table_events().await;
-        self.conn
+        self.conn()
             .execute(
                 "INSERT INTO events (file, branch, timestamp, event) VALUES (?1, ?2, ?3, ?4)",
                 params![
-                    file.path.clone(),
+                    file.path.to_str().expect("unable to convert to str"),
                     file.branch.clone(),
                     file.timestamp,
                     event.to_string()
