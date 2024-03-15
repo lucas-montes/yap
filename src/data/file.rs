@@ -3,16 +3,42 @@ use libsql::{params, Connection, Database};
 use menva::get_env;
 use std::{
     collections::VecDeque,
-    env, fmt, fs,
+    env, fs,
     path::{Path, PathBuf},
 };
 use turso::RowsIter;
+use serde::{Serialize, Deserialize};
+
+use crate::enums::Events;
 
 pub struct FileFacadeFactory {
     branch: String,
     logbooks: PathBuf,
     timestamp: i64,
     stack: VecDeque<PathBuf>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
+enum ComparaisonTechnique{
+    Hash,
+    Custom,
+    Similarity,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
+pub struct Comparaison {
+    #[serde(default)]
+    techniques: Vec<ComparaisonTechnique>,
+    #[serde(default)]
+    path: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
+pub struct FileConfig {
+    #[serde(default)]
+    path: String,
+    #[serde(default)]
+    comparaison: Comparaison
 }
 
 impl FileFacadeFactory {
@@ -47,10 +73,11 @@ impl Iterator for FileFacadeFactory {
 }
 
 pub struct FileFacade {
-    remote: String,
     path: PathBuf,
     branch: String,
     timestamp: i64,
+    //TODO: maybe instead of multiple connections we could create only one and save everything in
+    //batches
     conn: Connection,
 }
 
@@ -61,8 +88,11 @@ impl FileFacade {
             branch: branch.to_string(),
             timestamp,
             conn: Self::get_or_create_local_db(&logbooks, &path),
-            remote: String::default(),
         }
+    }
+
+    pub fn changed(&self) -> bool {
+        false
     }
 
     fn get_or_create_local_db(logbooks: &PathBuf, path: &PathBuf) -> Connection {
@@ -122,8 +152,7 @@ impl FileFacade {
     pub fn duplicate(&self, history: &str) -> &Self {
         let file = self.original_path();
         let local_path = self.history_path(history);
-        // TODO: make this async?
-        println!("final path for history  {:?}", &local_path);
+        // TODO: make this async? can be done with tokio?
         fs::create_dir_all(
             local_path
                 .parent()
@@ -192,19 +221,6 @@ impl Logbook {
             )
             .await
             .expect("error executing insert");
-    }
-}
-
-#[derive(Debug)]
-pub enum Events {
-    Add,
-    Commit,
-    Push,
-}
-
-impl fmt::Display for Events {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
     }
 }
 pub async fn run() -> i16 {

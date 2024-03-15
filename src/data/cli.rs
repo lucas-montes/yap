@@ -3,10 +3,10 @@ use futures::stream::StreamExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::compare::compare;
+use super::comparaison::compare;
 use crate::config::Config;
-use crate::enums::ColorWhen;
-use crate::versioning::{Events, FileFacade, FileFacadeFactory, Logbook};
+use crate::enums::{ColorWhen, Events};
+use super::file::{FileFacade, FileFacadeFactory, Logbook};
 
 use clap::{Args, Subcommand};
 use opendal::services::Gcs;
@@ -128,17 +128,34 @@ pub struct CommitData {
 
     #[arg(short, long, default_value = "master")]
     branch: String,
+
+    #[arg(short, long)]
+    message: String,
 }
 
 impl CommitData {
     async fn run(&self, config: &Config) -> i16 {
         let files =
             FileFacadeFactory::new(self.paths.clone(), &self.branch, &config.logbooks_dir());
+        let user_logbook = Arc::new(Logbook::local(&config.local_db()));
 
         futures::stream::iter(files)
-            .for_each(|f| async move { compare(&f, config).await })
+            .for_each(|f| {
+                let user_logbook = Arc::clone(&user_logbook);
+                async move {
+                    self.handle_file(&f, user_logbook, &config.history_dir())
+                        .await;
+                }
+            })
             .await;
         0
+    }
+
+    async fn handle_file(&self, file: &FileFacade, user_logbook: Arc<Logbook>, history: &str) {
+        if file.changed() {
+            let file = file.duplicate(history).insert_snapshot().await;
+            user_logbook.insert_log(file, &Events::Commit).await;
+        }
     }
 }
 

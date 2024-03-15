@@ -1,3 +1,5 @@
-pub mod models;
+pub mod cli;
+mod file;
+mod comparaison;
 
-pub use models::DataArgs;
+pub use cli::DataArgs;

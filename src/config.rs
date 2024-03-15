@@ -58,6 +58,7 @@ impl ConfigCommands {
         0
     }
 }
+/// TODO: for all configs make strings options if it can reduce memory size
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
 pub struct Author {
@@ -74,19 +75,21 @@ pub struct Config {
     #[arg(short, long, required = false)]
     #[serde(default)]
     group: String,
-    #[arg(short, long, required = false)]
+    #[arg(long, required = false)]
     #[serde(default)]
     location: String,
+    // Project or master config for the database movements to keep history of commits
     #[arg(short, long, required = false)]
     #[serde(default)]
     remote_db: String,
-    #[arg(short, long, required = false)]
+    #[arg(long, required = false)]
     #[serde(default)]
     local_db: String,
-    #[arg(short, long, required = false)]
+    // Files history and dbs for commits history
+    #[arg(long, required = false)]
     #[serde(default)]
     logbooks_dir: String,
-    #[arg(short, long, required = false)]
+    #[arg(long, required = false)]
     #[serde(default)]
     history_dir: String,
     #[clap(skip)]
@@ -94,6 +97,7 @@ pub struct Config {
     author: Author,
 }
 
+//TODO: make this file smaller so more settings are saved in the databse
 impl Config {
     fn check_for_root() {
         // TODO: we are testing to track single files.once finished change it

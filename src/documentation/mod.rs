@@ -1,3 +1,3 @@
-pub mod models;
+pub mod cli;
 
-pub use models::DocsArgs;
+pub use cli::DocsArgs;

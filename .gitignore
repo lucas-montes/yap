@@ -1,4 +1,5 @@
 /target
 */history
+data/test.parquet
 .env
 *index

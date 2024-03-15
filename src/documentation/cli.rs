@@ -1,4 +1,3 @@
-
 use crate::enums::ColorWhen;
 
 use clap::{Args, Subcommand};

@@ -2,7 +2,6 @@ use crate::config::ConfigArgs;
 use crate::data::DataArgs;
 use crate::documentation::DocsArgs;
 use crate::repro::{repro, ReproArgs};
-use crate::versioning::run;
 
 use clap::Parser;
 use menva::read_env_file;
@@ -23,7 +22,7 @@ impl Cli {
             Commands::Docs(args) => args.command.handle_commands(),
             Commands::Config(args) => args.command.handle_commands().await,
             Commands::Repro(args) => repro(args).await,
-            Commands::Test => run().await,
+            Commands::Test => todo!(),
         }
     }
 }

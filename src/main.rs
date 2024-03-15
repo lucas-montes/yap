@@ -1,11 +1,9 @@
 mod cli;
-mod compare;
 mod config;
 mod data;
 mod documentation;
 mod enums;
 mod repro;
-mod versioning;
 
 use cli::Cli;
 

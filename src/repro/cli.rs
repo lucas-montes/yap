@@ -1,14 +1,14 @@
-use std::{collections::HashMap, io::Read, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf};
 
-use clap::{Args, Subcommand};
+use clap::Args;
 use serde::Deserialize;
-use serde_yaml::{Mapping, Value};
+use serde_yaml::Mapping;
 use shlex::split;
 use tokio::process::Command;
 
 #[derive(Debug, Deserialize)]
 struct Pipeline {
-    // Handle foerach on tope of stages
+    // Handle foerach on top of stages
     stages: HashMap<String, Stage>,
 }
 
