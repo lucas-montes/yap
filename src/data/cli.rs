@@ -4,13 +4,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::comparaison::ComparaisonTechnique;
-use crate::config::Config;
-use crate::enums::{ColorWhen, Events};
 use super::file::{FileFacade, FileFacadeFactory, Logbook};
+use crate::{config::Config, enums::{ColorWhen, Events}, remote::PushStrategy};
 
 use clap::{Args, Subcommand};
-use opendal::services::Gcs;
-use opendal::Operator;
 
 #[derive(Debug, Args)]
 #[command(args_conflicts_with_subcommands = true)]
@@ -51,36 +48,14 @@ pub enum DataCommands {
 }
 
 impl DataCommands {
-    fn create_operator() -> Operator {
-        // create backend builder
-        let mut builder = Gcs::default();
-
-        // set the storage bucket for OpenDAL
-        builder.bucket("test");
-        // set the working directory root for GCS
-        // all operations will happen within it
-        builder.root("/path/to/dir");
-        // set the credential of service account.
-        builder.credential("service account credential");
-        // set the predefined ACL for GCS
-        builder.predefined_acl("publicRead");
-        // set the default storage class for GCS
-        builder.default_storage_class("STANDARD");
-
-        match Operator::new(builder) {
-            Ok(op) => op.finish(),
-            Err(err) => panic!("{:?}", err),
-        }
-    }
     pub async fn handle_commands(&self) -> i16 {
         let config = Config::new();
-        let op = Self::create_operator();
         match self {
             DataCommands::Add(args) => args.run(&config).await,
             DataCommands::Commit(args) => args.run(&config).await,
-            DataCommands::Push(args) => args.run(&op).await,
-            DataCommands::Get(args) => args.run(&op).await,
-            DataCommands::Remove(args) => args.run(&op).await,
+            DataCommands::Push(args) => args.run(&config).await,
+            DataCommands::Get(args) => args.run(&config).await,
+            DataCommands::Remove(args) => args.run(&config).await,
         };
         0
     }
@@ -97,16 +72,14 @@ pub struct AddData {
 
 impl AddData {
     async fn run(&self, config: &Config) -> i16 {
-        let files =
-            FileFacadeFactory::new(self.paths.clone(), &self.branch, &config);
+        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, &config);
         let user_logbook = Arc::new(Logbook::local(&config.local_db()));
 
         futures::stream::iter(files)
             .for_each(|f| {
                 let user_logbook = Arc::clone(&user_logbook);
                 async move {
-                    self.handle_file(&f, user_logbook)
-                        .await;
+                    self.handle_file(&f, user_logbook).await;
                 }
             })
             .await;
@@ -139,7 +112,7 @@ pub struct CommitData {
         value_enum
     )]
     comparaison: ComparaisonTechnique,
-    
+
     // Path to the script to execute when the comparaison technique is Custom
     #[arg(short, long, required = false)]
     script: Option<PathBuf>,
@@ -147,16 +120,14 @@ pub struct CommitData {
 
 impl CommitData {
     async fn run(&self, config: &Config) -> i16 {
-        let files =
-            FileFacadeFactory::new(self.paths.clone(), &self.branch, &config);
+        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, &config);
         let user_logbook = Arc::new(Logbook::local(&config.local_db()));
 
         futures::stream::iter(files)
             .for_each(|mut f| {
                 let user_logbook = Arc::clone(&user_logbook);
                 async move {
-                    self.handle_file(&mut f, user_logbook)
-                        .await;
+                    self.handle_file(&mut f, user_logbook).await;
                 }
             })
             .await;
@@ -165,12 +136,62 @@ impl CommitData {
 
     async fn handle_file(&self, file: &mut FileFacade, user_logbook: Arc<Logbook>) {
         if file.compare(&self.comparaison, &self.script).has_changed() {
-            let file = file.duplicate().insert_snapshot().await;
+            let file = file
+                .duplicate()
+                .insert_snapshot()
+                .await
+                .insert_commit(&self.message)
+                .await;
+            //TODO: save the comparaison results
             user_logbook.insert_log(file, &Events::Commit).await;
         }
     }
 }
 
+#[derive(Debug, Args, Clone)]
+pub struct PushData {
+    #[arg(short, long)]
+    paths: Vec<PathBuf>,
+
+    #[arg(short, long, default_value = "master")]
+    branch: String,
+
+    #[arg(short, long)]
+    remote: Option<String>,
+
+    #[arg(
+        short,
+        long,
+        default_value_t = PushStrategy::Smart,
+        value_enum
+    )]
+    strategy: PushStrategy,
+}
+
+impl PushData {
+    async fn run(&self, config: &Config) -> i16 {
+        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, &config);
+        let user_logbook = Arc::new(Logbook::local(&config.local_db()));
+
+        futures::stream::iter(files)
+            .for_each(|mut f| {
+                let user_logbook = Arc::clone(&user_logbook);
+                async move {
+                    self.handle_file(&mut f, user_logbook).await;
+                }
+            })
+            .await;
+        0
+    }
+
+    async fn handle_file(&self, file: &mut FileFacade, user_logbook: Arc<Logbook>) {
+        let file = file.push(self.remote.clone()).insert_snapshot().await;
+        //TODO: push the comparaison results
+        //TODO: it would be cool to save the errors if any from the copies and so on and save them
+        // in the db
+        user_logbook.insert_log(file, &Events::Push).await;
+    }
+}
 #[derive(Debug, Args, Clone)]
 pub struct RemoveData {
     #[arg(short, long)]
@@ -183,19 +204,8 @@ pub struct RemoveData {
 }
 
 impl RemoveData {
-    async fn run(&self, operator: &Operator) -> i16 {
-        match operator
-            .remove(
-                self.paths
-                    .iter()
-                    .map(|f| f.to_str().unwrap().to_owned())
-                    .collect(),
-            )
-            .await
-        {
-            Ok(_) => 0,
-            Err(err) => panic!("{:?}", err),
-        }
+    async fn run(&self, config: &Config) -> i16 {
+        0
     }
 }
 
@@ -206,25 +216,7 @@ pub struct GetData {
 }
 
 impl GetData {
-    async fn run(&self, operator: &Operator) -> i16 {
-        match operator.copy("path/to/file", "path/to/file2").await {
-            Ok(_) => 0,
-            Err(err) => panic!("{:?}", err),
-        }
-    }
-}
-
-#[derive(Debug, Args, Clone)]
-pub struct PushData {
-    #[arg(short, long)]
-    paths: Vec<PathBuf>,
-}
-
-impl PushData {
-    async fn run(&self, operator: &Operator) -> i16 {
-        match operator.copy("path/to/file", "path/to/file2").await {
-            Ok(_) => 0,
-            Err(err) => panic!("{:?}", err),
-        }
+    async fn run(&self, config: &Config) -> i16 {
+        0
     }
 }

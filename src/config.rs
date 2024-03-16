@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 use crate::enums::ColorWhen;
+use crate::remote::Remote;
 
 use turso::{
     DatabasesPlatform, GroupsPlatform, LocationsPlatform, OrganizationsPlatform, TursoClient,
@@ -94,6 +95,9 @@ pub struct Config {
     history_dir: String,
     #[clap(skip)]
     #[serde(default)]
+    remote: Remote,
+    #[clap(skip)]
+    #[serde(default)]
     author: Author,
 }
 
@@ -106,6 +110,11 @@ impl Config {
             true => (),
             false => panic!("oupsi daisy no you are not in the root buddy"),
         }
+    }
+
+    pub fn remote_storage(&self) -> String {
+        self.remote.clone();
+        String::new()
     }
 
     pub fn root(&self, path: &str) -> String {

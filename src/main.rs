@@ -1,4 +1,5 @@
 mod cli;
+mod remote;
 mod config;
 mod data;
 mod documentation;

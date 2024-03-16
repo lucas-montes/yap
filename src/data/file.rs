@@ -1,4 +1,3 @@
-use crate::config::Config;
 use libsql::{params, Connection, Database};
 use menva::get_env;
 use serde::{Deserialize, Serialize};
@@ -9,6 +8,7 @@ use std::{
 };
 use turso::RowsIter;
 
+use crate::{config::Config, remote::{push_file, Remote}};
 use crate::enums::Events;
 
 use super::comparaison::{
@@ -17,20 +17,11 @@ use super::comparaison::{
 };
 
 //  TODO: pas more things as ref
-
 pub struct FileFacadeFactory {
     branch: String,
     config: Config,
     timestamp: i64,
     stack: VecDeque<PathBuf>,
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
-pub struct FileConfig {
-    #[serde(default)]
-    remote: String,
-    #[serde(default)]
-    comparaison: Comparaison,
 }
 
 impl FileFacadeFactory {
@@ -64,20 +55,49 @@ impl Iterator for FileFacadeFactory {
     }
 }
 
-pub struct FileFacade {
-    changed: bool,
+#[derive(Debug)]
+pub struct File {
     path: PathBuf,
     history: String,
     branch: String,
     timestamp: i64,
+}
+
+impl File {
+    pub fn original_path(&self) -> PathBuf {
+        //TODO: will path always be relative?
+        env::current_dir().unwrap().join(&self.path)
+    }
+
+    pub fn history_dir(&self) -> PathBuf {
+        env::current_dir()
+            .unwrap()
+            .join(&self.history)
+            .join(&self.path)
+            .join(&self.branch)
+    }
+
+    pub fn history_path(&self) -> PathBuf {
+        //TODO: will path always be relative?
+        self.history_dir()
+            .join(Path::new(&self.timestamp.to_string()))
+    }
+}
+
+pub struct FileFacade {
+    changed: bool,
+    file: File,
     //TODO: maybe instead of multiple connections we could create only one and save everything in
     //batches
     conn: Connection,
+    remote: Remote,
+    comparaison: Comparaison,
 }
 
 impl FileFacade {
     pub fn new(path: &PathBuf, branch: &str, timestamp: i64, config: &Config) -> Self {
         Self {
+            remote: config.remote_storage(),
             changed: true,
             history: config.history_dir(),
             path: path.to_owned(),
@@ -85,6 +105,21 @@ impl FileFacade {
             timestamp,
             conn: Self::get_or_create_local_db(&config.logbooks_dir(), &path),
         }
+    }
+
+    pub fn remote(&self) -> String {
+        self.remote.clone()
+    }
+
+    pub fn push(&mut self, remote: Option<String>) -> &Self {
+        //self.remote is the default remote storage. If we want to specify a remote from the cli
+        // for a given file the in we'll be used instead of the default
+        // TODO: save all the files config as the remote and so on.
+        if remote.is_some() {
+            self.remote = remote.unwrap();
+        }
+        push_file(self);
+        self
     }
 
     pub fn previous_version(&self) -> PathBuf {
@@ -150,6 +185,30 @@ impl FileFacade {
         db.connect().expect("Unable to connect to local db")
     }
 
+    pub async fn insert_commit(&self, msg: &str) -> &Self {
+        self.conn
+            .execute(
+                &format!(
+                    "CREATE TABLE IF NOT EXISTS {}_commits (timestamp TIMESTAMP NOT NULL, message TEXT NOT NULL);",
+                    &self.branch
+                ),
+                (),
+            )
+            .await
+            .expect("unable to save movement into file logbook");
+
+        self.conn
+            .execute(
+                &format!(
+                    "INSERT INTO {}_commits (timestamp, message) VALUES (?1, ?2)",
+                    &self.branch
+                ),
+                params![&self.timestamp, msg],
+            )
+            .await
+            .expect("unable to save movement into project logbook");
+        self
+    }
     pub async fn insert_snapshot(&self) -> &Self {
         self.conn
             .execute(
@@ -160,7 +219,7 @@ impl FileFacade {
                 (),
             )
             .await
-            .expect("unable to save movement into user logbook");
+            .expect("unable to save movement into file logbook");
 
         self.conn
             .execute(

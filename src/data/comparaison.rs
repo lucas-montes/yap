@@ -41,6 +41,8 @@ pub fn compare_smart(file: &FileFacade) -> bool {
 pub fn compare_similarity(file: &FileFacade) -> bool {
     todo!()
 }
+//TODO: create the functions to compare parquets files with polars, the function to compare text
+//only files and the one to call the custom script
 pub fn compare_custom(file: &FileFacade, script: &PathBuf) -> bool {
     todo!()
 }
