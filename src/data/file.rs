@@ -13,7 +13,7 @@ use crate::{
 };
 use crate::{enums::Events, remote::PushStrategy};
 
-use super::comparaison::{self, Comparaison, ComparaisonTechnique};
+use super::comparaison::{Comparaison, ComparaisonTechnique};
 
 //  TODO: pass more things as ref
 #[derive(Debug, Default)]
@@ -48,11 +48,11 @@ impl FileFacadeFactory {
         let default_remote = config.remote_storage();
         let default_remote = remote
             .as_ref()
-            .and_then(|f| Some(default_remote.set_storage(&f)))
+            .map(|f| default_remote.set_storage(f))
             .unwrap();
         let default_remote = strategy
             .as_ref()
-            .and_then(|f| Some(default_remote.set_strategy(&f)))
+            .map(|f| default_remote.set_strategy(f))
             .unwrap();
         self.remote = Some(default_remote);
         self
@@ -68,13 +68,13 @@ impl FileFacadeFactory {
     }
 
     fn to_facade(&self, path: &PathBuf) -> FileFacade {
-        let file = File::new(&path, &self.branch, &self.history_dir, self.timestamp);
+        let file = File::new(path, &self.branch, &self.history_dir, self.timestamp);
         let facade = FileFacade::new(file).set_local_db(&self.logbooks_dir);
         match (self.comparaison.is_some(), self.remote.is_some()) {
             (false, true) => facade.set_remote(self.remote.as_ref().unwrap()),
-            (true, false) => facade.set_comparaison(&self.comparaison.as_ref().unwrap()),
+            (true, false) => facade.set_comparaison(self.comparaison.as_ref().unwrap()),
             (false, false) => facade,
-            _ => todo!("why have we comparaison and remote")
+            _ => todo!("why have we comparaison and remote"),
         }
     }
 }
@@ -83,13 +83,13 @@ impl Iterator for FileFacadeFactory {
     type Item = FileFacade;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.stack.pop_front().and_then(|p| {
+        self.stack.pop_front().map(|p| {
             if p.is_dir() {
                 p.read_dir()
                     .unwrap()
                     .for_each(|p| self.stack.push_back(p.unwrap().path()));
             }
-            Some(self.to_facade(&p))
+            self.to_facade(&p)
         })
     }
 }
@@ -103,7 +103,7 @@ pub struct File {
 }
 
 impl File {
-    pub fn new(path: &PathBuf, branch: &str, history: &str, timestamp: i64) -> Self {
+    pub fn new(path: &Path, branch: &str, history: &str, timestamp: i64) -> Self {
         Self {
             path: path.to_path_buf(),
             branch: branch.to_string(),
@@ -156,15 +156,15 @@ impl FileFacade {
         self.file.original_path()
     }
 
-    pub fn set_local_db(mut self, logbooks_dir: &PathBuf) ->  Self {
+    pub fn set_local_db(mut self, logbooks_dir: &Path) -> Self {
         //TODO: will path always be relative?
         let mut db_path = self.file.path.to_str().unwrap().to_string();
         db_path.push_str(".db");
-        let final_path = logbooks_dir.clone().join(db_path);
+        let final_path = logbooks_dir.join(db_path);
         fs::create_dir_all(final_path.parent().expect("no parent for local db"))
             .expect("unable to craete path to local db");
         let db = Database::open(
-            &final_path
+            final_path
                 .to_str()
                 .expect("unable to conver to str")
                 .to_string(),
@@ -291,8 +291,8 @@ impl FileFacade {
                 .expect("unable to get duplciate local path parent"),
         )
         .expect("Couldn't create dirs");
-        fs::create_dir_all(&local_path.parent().unwrap()).unwrap();
-        match fs::copy(&file, &local_path) {
+        fs::create_dir_all(local_path.parent().unwrap()).unwrap();
+        match fs::copy(file, &local_path) {
             Ok(_) => self,
             Err(err) => panic!("{}", err),
         }
@@ -354,8 +354,4 @@ impl Logbook {
             .await
             .expect("error executing insert");
     }
-}
-pub async fn run() -> i16 {
-    let _config = Config::new();
-    0
 }

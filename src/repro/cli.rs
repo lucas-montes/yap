@@ -15,7 +15,7 @@ struct Pipeline {
 impl Pipeline {
     fn build_graph(self) {
         let mut stage_graph: HashMap<u8, Vec<Stage>> = HashMap::default();
-        for (k, stage) in self.stages {
+        for (_k, stage) in self.stages {
             if stage.deps.is_empty() {
                 //Handle more complex logic
                 stage_graph.insert(0, vec![stage]);
@@ -97,7 +97,7 @@ fn read_yaml<T: for<'de> serde::Deserialize<'de>>(path: &PathBuf) -> T {
 }
 
 fn build_command(str_cmd: &str) -> Command {
-    let sliced_cmd = split(&str_cmd).unwrap();
+    let sliced_cmd = split(str_cmd).unwrap();
     let (first, args) = sliced_cmd.split_first().unwrap();
     let mut cmd = Command::new(first);
     cmd.args(args);
@@ -119,24 +119,24 @@ async fn execute_command(cmd: &mut Command) -> i16 {
                 Ok(exit_status) => {
                     if exit_status.success() {
                         // Script executed successfully
-                        return 0;
+                        0
                     } else {
                         // Script failed
                         eprintln!("Script failed with exit code: {:?}", exit_status.code());
-                        return 1;
+                        1
                     }
                 }
                 Err(e) => {
                     // Handle error waiting for the process
                     eprintln!("Error waiting for process: {}", e);
-                    return 1;
+                    1
                 }
             }
         }
         Err(e) => {
             // Handle error spawning the command
             eprintln!("Error spawning command: {}", e);
-            return 1;
+            1
         }
     }
 }

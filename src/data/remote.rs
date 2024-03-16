@@ -1,5 +1,3 @@
-use opendal::{services::Gcs, Operator};
-use serde::{Deserialize, Serialize};
 use menva::get_env;
 
 use clap::ValueEnum;
@@ -23,7 +21,7 @@ pub enum Protocol {
 
 pub fn push_file(file: &FileFacade) {
     match file.remote() {
-        //"md" => compare_similarity(&file),
+        "gcs" => create_operator(),
         _ => todo!(),
     }
 }

@@ -191,7 +191,7 @@ impl Config {
             let local_default = "logbook.db";
             self.local_db = local_default.to_string();
         }
-        let db = Database::open(&self.local_db()).expect("unable to open to local");
+        let db = Database::open(self.local_db()).expect("unable to open to local");
         let conn = db.connect().expect("unable to connect to local db");
         conn
             .execute(
@@ -213,8 +213,8 @@ impl Config {
             let default_db = databases.databases.iter().find(|g| g.name == default_name);
             let mut remote = String::from("libsql://");
             // TODO: change the migrations schema
-            if default_db.is_some() {
-                remote.push_str(&default_db.unwrap().hostname.to_owned());
+            if let Some(db) = default_db {
+                remote.push_str(&db.hostname.to_owned());
             } else {
                 let new_db = client
                     .create(&self.organization, default_name, &self.group)
