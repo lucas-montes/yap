@@ -5,7 +5,11 @@ use std::sync::Arc;
 
 use super::comparaison::ComparaisonTechnique;
 use super::file::{FileFacade, FileFacadeFactory, Logbook};
-use crate::{config::Config, enums::{ColorWhen, Events}, remote::PushStrategy};
+use crate::{
+    config::Config,
+    enums::{ColorWhen, Events},
+    remote::PushStrategy,
+};
 
 use clap::{Args, Subcommand};
 
@@ -72,7 +76,7 @@ pub struct AddData {
 
 impl AddData {
     async fn run(&self, config: &Config) -> i16 {
-        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, &config);
+        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, &config.history_dir());
         let user_logbook = Arc::new(Logbook::local(&config.local_db()));
 
         futures::stream::iter(files)
@@ -108,10 +112,11 @@ pub struct CommitData {
     #[arg(
         short,
         long,
-        default_value_t = ComparaisonTechnique::Smart,
+        num_args = 1..,
+        default_value = "vec![ComparaisonTechnique::Smart]",
         value_enum
     )]
-    comparaison: ComparaisonTechnique,
+    comparaisons: Vec<ComparaisonTechnique>,
 
     // Path to the script to execute when the comparaison technique is Custom
     #[arg(short, long, required = false)]
@@ -120,7 +125,8 @@ pub struct CommitData {
 
 impl CommitData {
     async fn run(&self, config: &Config) -> i16 {
-        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, &config);
+        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, &config.history_dir())
+            .set_comparaison(&self.comparaisons, &self.script);
         let user_logbook = Arc::new(Logbook::local(&config.local_db()));
 
         futures::stream::iter(files)
@@ -135,7 +141,7 @@ impl CommitData {
     }
 
     async fn handle_file(&self, file: &mut FileFacade, user_logbook: Arc<Logbook>) {
-        if file.compare(&self.comparaison, &self.script).has_changed() {
+        if file.compare().has_changed() {
             let file = file
                 .duplicate()
                 .insert_snapshot()
@@ -162,15 +168,15 @@ pub struct PushData {
     #[arg(
         short,
         long,
-        default_value_t = PushStrategy::Smart,
         value_enum
     )]
-    strategy: PushStrategy,
+    strategy: Option<PushStrategy>,
 }
 
 impl PushData {
     async fn run(&self, config: &Config) -> i16 {
-        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, &config);
+        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, &config.history_dir())
+            .set_remote(config, &self.remote, &self.strategy);
         let user_logbook = Arc::new(Logbook::local(&config.local_db()));
 
         futures::stream::iter(files)
@@ -185,7 +191,7 @@ impl PushData {
     }
 
     async fn handle_file(&self, file: &mut FileFacade, user_logbook: Arc<Logbook>) {
-        let file = file.push(self.remote.clone()).insert_snapshot().await;
+        let file = file.push().insert_snapshot().await;
         //TODO: push the comparaison results
         //TODO: it would be cool to save the errors if any from the copies and so on and save them
         // in the db

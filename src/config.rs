@@ -112,9 +112,8 @@ impl Config {
         }
     }
 
-    pub fn remote_storage(&self) -> String {
-        self.remote.clone();
-        String::new()
+    pub fn remote_storage(&self) -> Remote {
+        self.remote.clone()
     }
 
     pub fn root(&self, path: &str) -> String {

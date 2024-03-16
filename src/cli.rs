@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use crate::config::ConfigArgs;
 use crate::data::DataArgs;
 use crate::documentation::DocsArgs;
@@ -22,7 +24,10 @@ impl Cli {
             Commands::Docs(args) => args.command.handle_commands(),
             Commands::Config(args) => args.command.handle_commands().await,
             Commands::Repro(args) => repro(args).await,
-            Commands::Test => todo!(),
+            Commands::Test => {
+println!("{:?}", PathBuf::from("/").canonicalize().unwrap());
+                todo!()
+            },
         }
     }
 }

@@ -1,11 +1,11 @@
 use std::{
-    ffi::{OsStr, OsString},
+    ffi::OsStr,
     fs,
     path::PathBuf,
 };
 
 use clap::ValueEnum;
-use meowhash::{MeowHash, MeowHasher};
+use meowhash::MeowHasher;
 use serde::{Deserialize, Serialize};
 
 use super::file::FileFacade;
@@ -23,7 +23,31 @@ pub struct Comparaison {
     #[serde(default)]
     techniques: Vec<ComparaisonTechnique>,
     #[serde(default)]
-    path: String,
+    path: Option<PathBuf>,
+}
+
+impl Comparaison {
+    pub fn new(techniques: &Vec<ComparaisonTechnique>, path: &Option<PathBuf>) -> Self {
+        Self {
+            techniques: techniques.clone(),
+            path: path.to_owned(),
+        }
+    }
+
+    pub fn compare(&self, file:&FileFacade)->bool{
+        let technique = &self.techniques[0];
+        !match technique {
+            ComparaisonTechnique::Hash => compare_hash(file),
+            ComparaisonTechnique::Custom => compare_custom(
+                file,
+                self.path.as_ref().expect(
+                    "You must provide a script if you select the custom comparaison technique",
+                ),
+            ),
+            ComparaisonTechnique::Similarity => compare_similarity(file),
+            ComparaisonTechnique::Smart => compare_smart(file),
+        }
+    }
 }
 
 pub fn compare_smart(file: &FileFacade) -> bool {

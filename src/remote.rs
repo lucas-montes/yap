@@ -5,19 +5,39 @@ use clap::ValueEnum;
 
 use crate::data::FileFacade;
 
-
 #[derive(Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
 pub struct Remote {
     #[serde(default)]
     storage: String,
     #[serde(default)]
-    credential: String,
+    credentials: String,
+    #[serde(default)]
+    strategy: PushStrategy,
 }
 
-#[derive(ValueEnum, Debug, Clone, Deserialize, PartialEq, Serialize)]
+impl Remote {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn set_strategy(mut self, strategy: &PushStrategy) -> Self {
+        self.strategy = strategy.to_owned();
+        self
+    }
+    pub fn set_storage(mut self, storage: &str) -> Self {
+        self.storage = storage.to_owned();
+        self
+    }
+    fn protocol(&self) -> Protocol {
+        todo!()
+    }
+}
+
+#[derive(ValueEnum, Debug, Default, Clone, Deserialize, PartialEq, Serialize)]
 pub enum PushStrategy {
     All,
     Last,
+    #[default]
     Smart,
 }
 
