@@ -76,7 +76,7 @@ pub struct AddData {
 
 impl AddData {
     async fn run(&self, config: &Config) -> i16 {
-        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, &config.history_dir());
+        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, &config);
         let user_logbook = Arc::new(Logbook::local(&config.local_db()));
 
         futures::stream::iter(files)
@@ -125,7 +125,7 @@ pub struct CommitData {
 
 impl CommitData {
     async fn run(&self, config: &Config) -> i16 {
-        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, &config.history_dir())
+        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, &config)
             .set_comparaison(&self.comparaisons, &self.script);
         let user_logbook = Arc::new(Logbook::local(&config.local_db()));
 
@@ -175,7 +175,7 @@ pub struct PushData {
 
 impl PushData {
     async fn run(&self, config: &Config) -> i16 {
-        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, &config.history_dir())
+        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, &config)
             .set_remote(config, &self.remote, &self.strategy);
         let user_logbook = Arc::new(Logbook::local(&config.local_db()));
 

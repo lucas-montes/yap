@@ -13,16 +13,14 @@ use crate::{
 };
 use crate::{enums::Events, remote::PushStrategy};
 
-use super::comparaison::{
-    compare_custom, compare_hash, compare_similarity, compare_smart, Comparaison,
-    ComparaisonTechnique,
-};
+use super::comparaison::{self, Comparaison, ComparaisonTechnique};
 
 //  TODO: pass more things as ref
 #[derive(Debug, Default)]
 pub struct FileFacadeFactory {
     branch: String,
-    history: String,
+    history_dir: String,
+    logbooks_dir: PathBuf,
     timestamp: i64,
     remote: Option<Remote>,
     comparaison: Option<Comparaison>,
@@ -30,10 +28,11 @@ pub struct FileFacadeFactory {
 }
 
 impl FileFacadeFactory {
-    pub fn new(paths: Vec<PathBuf>, branch: &str, history: &str) -> Self {
+    pub fn new(paths: Vec<PathBuf>, branch: &str, config: &Config) -> Self {
         Self {
             branch: branch.to_owned(),
-            history: history.to_owned(),
+            history_dir: config.history_dir().to_owned(),
+            logbooks_dir: config.logbooks_dir().to_owned(),
             timestamp: chrono::offset::Local::now().timestamp(),
             stack: VecDeque::from(paths),
             ..Self::default()
@@ -58,6 +57,7 @@ impl FileFacadeFactory {
         self.remote = Some(default_remote);
         self
     }
+
     pub fn set_comparaison(
         mut self,
         techniques: &Vec<ComparaisonTechnique>,
@@ -68,8 +68,14 @@ impl FileFacadeFactory {
     }
 
     fn to_facade(&self, path: &PathBuf) -> FileFacade {
-        let file = File::new(&path, &self.branch, &self.history, self.timestamp);
-        FileFacade::new(file)
+        let file = File::new(&path, &self.branch, &self.history_dir, self.timestamp);
+        let facade = FileFacade::new(file).set_local_db(&self.logbooks_dir);
+        match (self.comparaison.is_some(), self.remote.is_some()) {
+            (false, true) => facade.set_remote(self.remote.as_ref().unwrap()),
+            (true, false) => facade.set_comparaison(&self.comparaison.as_ref().unwrap()),
+            (false, false) => facade,
+            _ => todo!("why have we comparaison and remote")
+        }
     }
 }
 
@@ -150,7 +156,7 @@ impl FileFacade {
         self.file.original_path()
     }
 
-    pub fn set_local_db(&mut self, logbooks_dir: &PathBuf) -> &mut Self {
+    pub fn set_local_db(mut self, logbooks_dir: &PathBuf) ->  Self {
         //TODO: will path always be relative?
         let mut db_path = self.file.path.to_str().unwrap().to_string();
         db_path.push_str(".db");
@@ -172,13 +178,14 @@ impl FileFacade {
         self.conn.as_ref().unwrap()
     }
 
-    pub fn set_remote(mut self, config: &Config) -> Self {
+    pub fn set_remote(mut self, remote: &Remote) -> Self {
         //TODO: i've probably forgotten to set remote and comparaison structs in the facade
-        self.remote = Some(config.remote_storage());
+        self.remote = Some(remote.clone());
         self
     }
 
-    pub fn set_comparaison(mut self) -> Self {
+    pub fn set_comparaison(mut self, comparaison: &Comparaison) -> Self {
+        self.comparaison = Some(comparaison.clone());
         self
     }
 
