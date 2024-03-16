@@ -1,51 +1,43 @@
 use crate::config::Config;
 use libsql::{params, Connection, Database};
 use menva::get_env;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::VecDeque,
     env, fs,
     path::{Path, PathBuf},
 };
 use turso::RowsIter;
-use serde::{Serialize, Deserialize};
 
 use crate::enums::Events;
 
+use super::comparaison::{
+    compare_custom, compare_hash, compare_similarity, compare_smart, Comparaison,
+    ComparaisonTechnique,
+};
+
+//  TODO: pas more things as ref
+
 pub struct FileFacadeFactory {
     branch: String,
-    logbooks: PathBuf,
+    config: Config,
     timestamp: i64,
     stack: VecDeque<PathBuf>,
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
-enum ComparaisonTechnique{
-    Hash,
-    Custom,
-    Similarity,
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
-pub struct Comparaison {
-    #[serde(default)]
-    techniques: Vec<ComparaisonTechnique>,
-    #[serde(default)]
-    path: String,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
 pub struct FileConfig {
     #[serde(default)]
-    path: String,
+    remote: String,
     #[serde(default)]
-    comparaison: Comparaison
+    comparaison: Comparaison,
 }
 
 impl FileFacadeFactory {
-    pub fn new(paths: Vec<PathBuf>, branch: &str, logbooks: &PathBuf) -> Self {
+    pub fn new(paths: Vec<PathBuf>, branch: &str, config: &Config) -> Self {
         Self {
             branch: branch.to_owned(),
-            logbooks: logbooks.to_owned(),
+            config: config.to_owned(),
             timestamp: chrono::offset::Local::now().timestamp(),
             stack: VecDeque::from(paths),
         }
@@ -66,14 +58,16 @@ impl Iterator for FileFacadeFactory {
                 &p,
                 &self.branch,
                 self.timestamp,
-                &self.logbooks,
+                &self.config,
             ))
         })
     }
 }
 
 pub struct FileFacade {
+    changed: bool,
     path: PathBuf,
+    history: String,
     branch: String,
     timestamp: i64,
     //TODO: maybe instead of multiple connections we could create only one and save everything in
@@ -82,17 +76,61 @@ pub struct FileFacade {
 }
 
 impl FileFacade {
-    pub fn new(path: &PathBuf, branch: &str, timestamp: i64, logbooks: &PathBuf) -> Self {
+    pub fn new(path: &PathBuf, branch: &str, timestamp: i64, config: &Config) -> Self {
         Self {
+            changed: true,
+            history: config.history_dir(),
             path: path.to_owned(),
             branch: branch.to_string(),
             timestamp,
-            conn: Self::get_or_create_local_db(&logbooks, &path),
+            conn: Self::get_or_create_local_db(&config.logbooks_dir(), &path),
         }
     }
 
-    pub fn changed(&self) -> bool {
-        false
+    pub fn previous_version(&self) -> PathBuf {
+        //TODO: for now just look in the history dir, later on check the dabbatase and find the
+        //previous file even if remote
+        let mut files = self
+            .history_dir()
+            .read_dir()
+            .unwrap()
+            .map(|f| {
+                f.unwrap()
+                    .file_name()
+                    .into_string()
+                    .unwrap()
+                    .parse::<i64>()
+                    .unwrap()
+            })
+            .collect::<Vec<i64>>();
+        files.sort();
+        //TODO: poping the last elemnt will do the trick for now. find a better way to find the
+        //previous
+        let prev_version = files.pop().unwrap().to_string();
+        self.history_dir().join(Path::new(&prev_version))
+    }
+
+    pub fn compare(
+        &mut self,
+        technique: &ComparaisonTechnique,
+        script: &Option<PathBuf>,
+    ) -> &mut Self {
+        self.changed = !match technique {
+            ComparaisonTechnique::Hash => compare_hash(self),
+            ComparaisonTechnique::Custom => compare_custom(
+                self,
+                script.as_ref().expect(
+                    "You must provide a script if you select the custom comparaison technique",
+                ),
+            ),
+            ComparaisonTechnique::Similarity => compare_similarity(self),
+            ComparaisonTechnique::Smart => compare_smart(self),
+        };
+        self
+    }
+
+    pub fn has_changed(&self) -> bool {
+        self.changed
     }
 
     fn get_or_create_local_db(logbooks: &PathBuf, path: &PathBuf) -> Connection {
@@ -130,28 +168,32 @@ impl FileFacade {
                 params![&self.timestamp],
             )
             .await
-            .expect("unable to save movement into user logbook");
+            .expect("unable to save movement into project logbook");
         self
     }
 
-    fn original_path(&self) -> PathBuf {
+    pub fn original_path(&self) -> PathBuf {
         //TODO: will path always be relative?
         env::current_dir().unwrap().join(&self.path)
     }
 
-    fn history_path(&self, history: &str) -> PathBuf {
-        //TODO: will path always be relative?
+    pub fn history_dir(&self) -> PathBuf {
         env::current_dir()
             .unwrap()
-            .join(history)
+            .join(&self.history)
             .join(&self.path)
             .join(&self.branch)
+    }
+
+    pub fn history_path(&self) -> PathBuf {
+        //TODO: will path always be relative?
+        self.history_dir()
             .join(Path::new(&self.timestamp.to_string()))
     }
 
-    pub fn duplicate(&self, history: &str) -> &Self {
+    pub fn duplicate(&self) -> &Self {
         let file = self.original_path();
-        let local_path = self.history_path(history);
+        let local_path = self.history_path();
         // TODO: make this async? can be done with tokio?
         fs::create_dir_all(
             local_path

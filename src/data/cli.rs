@@ -3,7 +3,7 @@ use futures::stream::StreamExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use super::comparaison::compare;
+use super::comparaison::ComparaisonTechnique;
 use crate::config::Config;
 use crate::enums::{ColorWhen, Events};
 use super::file::{FileFacade, FileFacadeFactory, Logbook};
@@ -98,14 +98,14 @@ pub struct AddData {
 impl AddData {
     async fn run(&self, config: &Config) -> i16 {
         let files =
-            FileFacadeFactory::new(self.paths.clone(), &self.branch, &config.logbooks_dir());
+            FileFacadeFactory::new(self.paths.clone(), &self.branch, &config);
         let user_logbook = Arc::new(Logbook::local(&config.local_db()));
 
         futures::stream::iter(files)
             .for_each(|f| {
                 let user_logbook = Arc::clone(&user_logbook);
                 async move {
-                    self.handle_file(&f, user_logbook, &config.history_dir())
+                    self.handle_file(&f, user_logbook)
                         .await;
                 }
             })
@@ -113,9 +113,9 @@ impl AddData {
         0
     }
 
-    async fn handle_file(&self, file: &FileFacade, user_logbook: Arc<Logbook>, history: &str) {
+    async fn handle_file(&self, file: &FileFacade, user_logbook: Arc<Logbook>) {
         if !user_logbook.file_is_tracked(file, &Events::Add).await {
-            let file = file.duplicate(history).insert_snapshot().await;
+            let file = file.duplicate().insert_snapshot().await;
             user_logbook.insert_log(file, &Events::Add).await;
         };
     }
@@ -123,7 +123,7 @@ impl AddData {
 
 #[derive(Debug, Args, Clone)]
 pub struct CommitData {
-    #[arg(short, long, required = false)]
+    #[arg(short, long, num_args = 1..)]
     paths: Vec<PathBuf>,
 
     #[arg(short, long, default_value = "master")]
@@ -131,19 +131,31 @@ pub struct CommitData {
 
     #[arg(short, long)]
     message: String,
+
+    #[arg(
+        short,
+        long,
+        default_value_t = ComparaisonTechnique::Smart,
+        value_enum
+    )]
+    comparaison: ComparaisonTechnique,
+    
+    // Path to the script to execute when the comparaison technique is Custom
+    #[arg(short, long, required = false)]
+    script: Option<PathBuf>,
 }
 
 impl CommitData {
     async fn run(&self, config: &Config) -> i16 {
         let files =
-            FileFacadeFactory::new(self.paths.clone(), &self.branch, &config.logbooks_dir());
+            FileFacadeFactory::new(self.paths.clone(), &self.branch, &config);
         let user_logbook = Arc::new(Logbook::local(&config.local_db()));
 
         futures::stream::iter(files)
-            .for_each(|f| {
+            .for_each(|mut f| {
                 let user_logbook = Arc::clone(&user_logbook);
                 async move {
-                    self.handle_file(&f, user_logbook, &config.history_dir())
+                    self.handle_file(&mut f, user_logbook)
                         .await;
                 }
             })
@@ -151,9 +163,9 @@ impl CommitData {
         0
     }
 
-    async fn handle_file(&self, file: &FileFacade, user_logbook: Arc<Logbook>, history: &str) {
-        if file.changed() {
-            let file = file.duplicate(history).insert_snapshot().await;
+    async fn handle_file(&self, file: &mut FileFacade, user_logbook: Arc<Logbook>) {
+        if file.compare(&self.comparaison, &self.script).has_changed() {
+            let file = file.duplicate().insert_snapshot().await;
             user_logbook.insert_log(file, &Events::Commit).await;
         }
     }
