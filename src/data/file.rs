@@ -45,35 +45,38 @@ impl FileFacadeFactory {
         remote: &Option<String>,
         strategy: &Option<PushStrategy>,
     ) -> Self {
-        let default_remote = config.remote_storage();
-        let default_remote = remote
-            .as_ref()
-            .map(|f| default_remote.set_storage(f))
-            .unwrap();
-        let default_remote = strategy
-            .as_ref()
-            .map(|f| default_remote.set_strategy(f))
-            .unwrap();
+        let mut default_remote = config.remote_storage();
+        if let Some(rem) = remote {
+             default_remote = default_remote.set_storage(&rem);
+        }
+        if let Some(strategy) = strategy {
+           default_remote = default_remote.set_strategy(strategy);
+        }
+        println!("{:?}", &default_remote);
         self.remote = Some(default_remote);
         self
     }
 
     pub fn set_comparaison(
         mut self,
-        techniques: &Vec<ComparaisonTechnique>,
+        techniques: &[ComparaisonTechnique],
         path: &Option<PathBuf>,
     ) -> Self {
         self.comparaison = Some(Comparaison::new(techniques, path));
         self
     }
 
-    fn to_facade(&self, path: &PathBuf) -> FileFacade {
+    fn to_facade(&self, path: &Path) -> FileFacade {
         let file = File::new(path, &self.branch, &self.history_dir, self.timestamp);
         let facade = FileFacade::new(file).set_local_db(&self.logbooks_dir);
         match (self.comparaison.is_some(), self.remote.is_some()) {
+            // We are pushing so we need the remote info
             (false, true) => facade.set_remote(self.remote.as_ref().unwrap()),
+            // We are commiting so we need the comparaison info
             (true, false) => facade.set_comparaison(self.comparaison.as_ref().unwrap()),
+            // We are just adding files
             (false, false) => facade,
+            // IDK what this could be
             _ => todo!("why have we comparaison and remote"),
         }
     }
@@ -152,6 +155,10 @@ impl FileFacade {
         }
     }
 
+    pub fn path(&self) -> &Path {
+        &self.file.path
+    }
+
     pub fn original_path(&self) -> PathBuf {
         self.file.original_path()
     }
@@ -193,11 +200,11 @@ impl FileFacade {
         self.remote.as_ref().unwrap().clone()
     }
 
-    pub fn push(&self) -> &Self {
+    pub async fn push(&self) -> &Self {
         //self.remote is the default remote storage. If we want to specify a remote from the cli
         // for a given file the in we'll be used instead of the default
         // TODO: save all the files config as the remote and so on.
-        push_file(self);
+        push_file(self).await;
         self
     }
 

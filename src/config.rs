@@ -95,7 +95,7 @@ pub struct Config {
     history_dir: String,
     #[clap(skip)]
     #[serde(default)]
-    remote: Remote,
+    storage: String,
     #[clap(skip)]
     #[serde(default)]
     author: Author,
@@ -113,7 +113,7 @@ impl Config {
     }
 
     pub fn remote_storage(&self) -> Remote {
-        self.remote.clone()
+        Remote::new().set_storage(&self.storage)
     }
 
     pub fn root(&self, path: &str) -> String {

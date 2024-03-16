@@ -27,9 +27,9 @@ pub struct Comparaison {
 }
 
 impl Comparaison {
-    pub fn new(techniques: &Vec<ComparaisonTechnique>, path: &Option<PathBuf>) -> Self {
+    pub fn new(techniques: &[ComparaisonTechnique], path: &Option<PathBuf>) -> Self {
         Self {
-            techniques: techniques.clone(),
+            techniques: techniques.to_vec(),
             path: path.to_owned(),
         }
     }
@@ -63,8 +63,9 @@ pub fn compare_smart(file: &FileFacade) -> bool {
         _ => simple,
     }
 }
-pub fn compare_similarity(_file: &FileFacade) -> bool {
-    todo!()
+pub fn compare_similarity(file: &FileFacade) -> bool {
+    //TODO: rm this awesome trick
+    compare_hash(file)
 }
 //TODO: create the functions to compare parquets files with polars, the function to compare text
 //only files and the one to call the custom script

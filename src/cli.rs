@@ -24,10 +24,7 @@ impl Cli {
             Commands::Docs(args) => args.command.handle_commands(),
             Commands::Config(args) => args.command.handle_commands().await,
             Commands::Repro(args) => repro(args).await,
-            Commands::Test => {
-println!("{:?}", PathBuf::from("/").canonicalize().unwrap());
-                todo!()
-            },
+            Commands::Test => todo!(),
         }
     }
 }

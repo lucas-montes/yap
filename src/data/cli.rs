@@ -113,7 +113,7 @@ pub struct CommitData {
         short,
         long,
         num_args = 1..,
-        default_value = "vec![ComparaisonTechnique::Smart]",
+        default_value = "smart",
         value_enum
     )]
     comparaisons: Vec<ComparaisonTechnique>,
@@ -191,7 +191,7 @@ impl PushData {
     }
 
     async fn handle_file(&self, file: &mut FileFacade, user_logbook: Arc<Logbook>) {
-        let file = file.push().insert_snapshot().await;
+        let file = file.push().await.insert_snapshot().await;
         //TODO: push the comparaison results
         //TODO: it would be cool to save the errors if any from the copies and so on and save them
         // in the db
