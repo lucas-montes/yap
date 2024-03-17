@@ -9,7 +9,7 @@ use turso::RowsIter;
 
 use crate::{
     config::Config,
-    remote::{push_file, Remote},
+    remote::{push_file, Remote, Storage},
 };
 use crate::{enums::Events, remote::PushStrategy};
 
@@ -42,17 +42,16 @@ impl FileFacadeFactory {
     pub fn set_remote(
         mut self,
         config: &Config,
-        remote: &Option<String>,
+        remote: &Option<Storage>,
         strategy: &Option<PushStrategy>,
     ) -> Self {
         let mut default_remote = config.remote_storage();
         if let Some(rem) = remote {
-             default_remote = default_remote.set_storage(&rem);
+             default_remote = default_remote.set_storage(rem);
         }
         if let Some(strategy) = strategy {
            default_remote = default_remote.set_strategy(strategy);
         }
-        println!("{:?}", &default_remote);
         self.remote = Some(default_remote);
         self
     }

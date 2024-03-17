@@ -1,5 +1,10 @@
+use std::fs;
+
 use menva::get_env;
-use opendal::{services::Gcs, Operator};
+use opendal::{
+    services::{Gcs, Koofr, Pcloud},
+    Operator,
+};
 use serde::{Deserialize, Serialize};
 
 use clap::ValueEnum;
@@ -9,7 +14,15 @@ use crate::data::FileFacade;
 #[derive(Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
 pub struct Remote {
     #[serde(default)]
-    storage: String,
+    storage: Storage,
+    #[serde(default)]
+    root: String,
+    #[serde(default)]
+    bucket: String,
+    #[serde(default)]
+    username: String,
+    #[serde(default)]
+    password: String,
     #[serde(default)]
     credentials: String,
     #[serde(default)]
@@ -26,7 +39,7 @@ impl Remote {
         self
     }
 
-    pub fn set_storage(mut self, storage: &str) -> Self {
+    pub fn set_storage(mut self, storage: &Storage) -> Self {
         self.storage = storage.to_owned();
         self
     }
@@ -36,11 +49,50 @@ impl Remote {
         self
     }
 
-    fn protocol(&self) -> Protocol {
-        match self.storage.split_once("://") {
-            Some((protocol, _)) => Protocol::from_str(protocol),
+    fn get_storage_operator(&self) -> Operator {
+        match self.storage {
+            Storage::Gcs => self.create_gcs(),
+            Storage::Koofr => self.create_koofr(),
+            Storage::Pcloud => self.create_pcloud(),
+        }
+    }
 
-            None => panic!("What df is that protocol bro"),
+    fn create_koofr(&self) -> Operator {
+        let mut builder = Koofr::default();
+        builder.root(&self.root);
+        builder.endpoint("https://api.koofr.net/");
+        builder.email(&self.username);
+        builder.password(&self.password);
+        match Operator::new(builder) {
+            Ok(op) => op.finish(),
+            Err(err) => panic!("{:?}", err),
+        }
+    }
+
+    fn create_pcloud(&self) -> Operator {
+        let mut builder = Pcloud::default();
+        builder.root(&self.root);
+        builder.endpoint("[https](https://eapi.pcloud.com)");
+        builder.username(&self.username);
+        builder.password(&self.password);
+
+        match Operator::new(builder) {
+            Ok(op) => op.finish(),
+            Err(err) => panic!("{:?}", err),
+        }
+    }
+
+    fn create_gcs(&self) -> Operator {
+        let mut builder = Gcs::default();
+        builder.bucket("yap-default");
+        builder.root(&self.root);
+        builder.credential_path(&self.credentials);
+        builder.predefined_acl("publicRead");
+        builder.default_storage_class("STANDARD");
+
+        match Operator::new(builder) {
+            Ok(op) => op.finish(),
+            Err(err) => panic!("{:?}", err),
         }
     }
 }
@@ -53,63 +105,36 @@ pub enum PushStrategy {
     Smart,
 }
 
-#[derive(Debug)]
-pub enum Protocol {
-    Gs,
-    Http,
-}
-
-impl Protocol {
-    fn from_str(protocol: &str) -> Self {
-        match protocol {
-            "gs" | "Gs" => Protocol::Gs,
-            "http" | "https" => Protocol::Http,
-            _ => Protocol::Http,
-        }
-    }
+#[derive(ValueEnum, Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
+pub enum Storage {
+    #[default]
+    Gcs,
+    Koofr,
+    Pcloud,
 }
 
 pub async fn push_file(file: &FileFacade) {
     //TODO: according to the push strategy we need to get and loop all the versions
-    let operator = get_operator(file);
-    let result = operator
-        .copy(
-            file.original_path().to_str().unwrap(),
-            file.path().to_str().unwrap(),
-        )
-        .await;
-    println!("{:?}", result);
-}
-
-fn get_operator(file: &FileFacade) -> Operator {
     let remote = file.remote();
-    match remote.protocol() {
-        Protocol::Gs => create_gcs(
-            &remote.storage,
-            file.path().to_str().unwrap(),
-            &remote.credentials,
-        ),
-        _ => todo!(),
-    }
+    let operator = remote.get_storage_operator();
+    //let result = operator.read("for_the_cloud.md").await;
+
+    let data = fs::read(file.original_path()).unwrap();
+    let result = operator.write(file.path().to_str().unwrap(), data).await;
+
+    //println!("{:?}", std::str::from_utf8(&result.unwrap()));
+    // let result = operator
+    //     .copy(
+    //         "./data/test.parquet",
+    //         "test.parquet"
+    //     )
+    //     .await;
+    println!("{:?}", &result);
 }
 
-fn create_gcs(bucket: &str, file_path: &str, credentials: &str) -> Operator {
-    let mut builder = Gcs::default();
-
-    // set the storage bucket for OpenDAL
-    builder.bucket(bucket);
-    // set the working directory root for GCS
-    // all operations will happen within it
-    builder.root(file_path);
-    // set the credential of service account.
-    builder.credential_path(credentials);
-    // set the predefined ACL for GCS
-    builder.predefined_acl("publicRead");
-    // set the default storage class for GCS
-    builder.default_storage_class("STANDARD");
-
-    match Operator::new(builder) {
-        Ok(op) => op.finish(),
-        Err(err) => panic!("{:?}", err),
-    }
+pub async fn pull_file(file: &FileFacade) {
+    let remote = file.remote();
+    let operator = remote.get_storage_operator();
+    let result = operator.read(file.path().to_str().unwrap()).await.unwrap();
+    println!("{:?}", std::str::from_utf8(&result));
 }

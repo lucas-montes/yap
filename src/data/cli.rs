@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use super::comparaison::ComparaisonTechnique;
 use super::file::{FileFacade, FileFacadeFactory, Logbook};
+use crate::remote::{pull_file, Storage};
 use crate::{
     config::Config,
     enums::{ColorWhen, Events},
@@ -48,7 +49,7 @@ pub enum DataCommands {
 
     /// Read one or more objects
     #[command(arg_required_else_help = true)]
-    Get(GetData),
+    Pull(PullData),
 }
 
 impl DataCommands {
@@ -58,7 +59,7 @@ impl DataCommands {
             DataCommands::Add(args) => args.run(&config).await,
             DataCommands::Commit(args) => args.run(&config).await,
             DataCommands::Push(args) => args.run(&config).await,
-            DataCommands::Get(args) => args.run(&config).await,
+            DataCommands::Pull(args) => args.run(&config).await,
             DataCommands::Remove(args) => args.run(&config).await,
         };
         0
@@ -162,8 +163,8 @@ pub struct PushData {
     #[arg(short, long, default_value = "master")]
     branch: String,
 
-    #[arg(short, long)]
-    remote: Option<String>,
+    #[arg(short, long, value_enum)]
+    remote: Option<Storage>,
 
     #[arg(
         short,
@@ -198,6 +199,7 @@ impl PushData {
         user_logbook.insert_log(file, &Events::Push).await;
     }
 }
+
 #[derive(Debug, Args, Clone)]
 pub struct RemoveData {
     #[arg(short, long)]
@@ -216,13 +218,35 @@ impl RemoveData {
 }
 
 #[derive(Debug, Args, Clone)]
-pub struct GetData {
+pub struct PullData {
     #[arg(short, long)]
     paths: Vec<PathBuf>,
+
+    #[arg(short, long, default_value = "master")]
+    branch: String,
+
+    #[arg(short, long, value_enum)]
+    remote: Option<Storage>,
 }
 
-impl GetData {
-    async fn run(&self, _config: &Config) -> i16 {
+impl PullData {
+    async fn run(&self, config: &Config) -> i16 {
+        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, config)
+            .set_remote(config, &self.remote, &None);
+        let user_logbook = Arc::new(Logbook::local(&config.local_db()));
+
+        futures::stream::iter(files)
+            .for_each(|mut f| {
+                let user_logbook = Arc::clone(&user_logbook);
+                async move {
+                    self.handle_file(&mut f, user_logbook).await;
+                }
+            })
+            .await;
         0
+    }
+
+    async fn handle_file(&self, file: &mut FileFacade, user_logbook: Arc<Logbook>) {
+        pull_file(file).await;
     }
 }
