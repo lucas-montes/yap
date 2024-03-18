@@ -117,18 +117,8 @@ pub async fn push_file(file: &FileFacade) {
     //TODO: according to the push strategy we need to get and loop all the versions
     let remote = file.remote();
     let operator = remote.get_storage_operator();
-    //let result = operator.read("for_the_cloud.md").await;
-
-    let data = fs::read(file.original_path()).unwrap();
+    let data = tokio::fs::read(file.original_path()).await.unwrap();
     let result = operator.write(file.path().to_str().unwrap(), data).await;
-
-    //println!("{:?}", std::str::from_utf8(&result.unwrap()));
-    // let result = operator
-    //     .copy(
-    //         "./data/test.parquet",
-    //         "test.parquet"
-    //     )
-    //     .await;
     println!("{:?}", &result);
 }
 
@@ -137,4 +127,5 @@ pub async fn pull_file(file: &FileFacade) {
     let operator = remote.get_storage_operator();
     let result = operator.read(file.path().to_str().unwrap()).await.unwrap();
     println!("{:?}", std::str::from_utf8(&result));
+    tokio::fs::write(&file.history_path(), &result).await.unwrap();
 }

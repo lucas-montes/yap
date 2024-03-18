@@ -154,6 +154,10 @@ impl FileFacade {
         }
     }
 
+    pub fn history_path(&self) -> PathBuf {
+        self.file.history_path()
+    }
+
     pub fn path(&self) -> &Path {
         &self.file.path
     }
@@ -316,14 +320,6 @@ impl Logbook {
 
     pub fn local(path: &str) -> Self {
         let db = Database::open(path).expect("unable to open local");
-        Self::new(db)
-    }
-
-    pub async fn remote(local_db: &str, remote_db: &str) -> Self {
-        let token = get_env("DB_TOKEN");
-        let db = Database::open_with_remote_sync(local_db, remote_db, token)
-            .await
-            .expect("unable to open to remote");
         Self::new(db)
     }
 
