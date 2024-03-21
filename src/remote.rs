@@ -119,13 +119,12 @@ pub async fn push_file(file: &FileFacade) {
     let operator = remote.get_storage_operator();
     let data = tokio::fs::read(file.original_path()).await.unwrap();
     let result = operator.write(file.path().to_str().unwrap(), data).await;
-    println!("{:?}", &result);
 }
 
 pub async fn pull_file(file: &FileFacade) {
     let remote = file.remote();
     let operator = remote.get_storage_operator();
     let result = operator.read(file.path().to_str().unwrap()).await.unwrap();
-    println!("{:?}", std::str::from_utf8(&result));
+    tokio::fs::create_dir_all(&file.history_path().parent().unwrap()).await.unwrap();
     tokio::fs::write(&file.history_path(), &result).await.unwrap();
 }

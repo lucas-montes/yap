@@ -6,6 +6,7 @@ use clap::ValueEnum;
 pub enum Events {
     Add,
     Commit,
+    Pull,
     Push,
 }
 
