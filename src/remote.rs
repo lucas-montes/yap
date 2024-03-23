@@ -1,4 +1,4 @@
-use std::fs;
+
 
 use menva::get_env;
 use opendal::{
@@ -118,7 +118,7 @@ pub async fn push_file(file: &FileFacade) {
     let remote = file.remote();
     let operator = remote.get_storage_operator();
     let data = tokio::fs::read(file.original_path()).await.unwrap();
-    let result = operator.write(file.path().to_str().unwrap(), data).await;
+    let _result = operator.write(file.path().to_str().unwrap(), data).await;
 }
 
 pub async fn pull_file(file: &FileFacade) {

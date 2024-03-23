@@ -1,6 +1,6 @@
 pub mod cli;
-mod file;
 mod versioning;
+mod file;
 mod comparaison;
 
 pub use cli::DataArgs;

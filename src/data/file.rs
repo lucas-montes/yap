@@ -1,10 +1,11 @@
-use libsql::{params, Connection, Database};
+use libsql::{params, Builder, Connection, Database};
 use std::{
     collections::VecDeque,
     env, fs,
     path::{Path, PathBuf},
 };
-use turso::RowsIter;
+
+use serde::{Deserialize, Serialize};
 
 use crate::{
     config::Config,
@@ -12,7 +13,10 @@ use crate::{
 };
 use crate::{enums::Events, remote::PushStrategy};
 
-use super::comparaison::{Comparaison, ComparaisonTechnique};
+use super::{
+    comparaison::{Comparaison, ComparaisonTechnique},
+    versioning::Commit,
+};
 
 pub struct Logbook {
     db: Database,
@@ -27,8 +31,11 @@ impl Logbook {
         self.db.connect().expect("cant connect to db")
     }
 
-    pub fn local(path: &str) -> Self {
-        let db = Database::open(path).expect("unable to open local");
+    pub async fn local(path: &str) -> Self {
+        let db = Builder::new_local(path)
+            .build()
+            .await
+            .expect("unable to open local");
         Self::new(db)
     }
 
@@ -37,16 +44,19 @@ impl Logbook {
             .conn()
             .query(
                 "SELECT EXISTS(SELECT 1 FROM files WHERE path=?1 AND branch=?2 LIMIT 1);",
-                (
+                params![
                     file.file.path.to_str().expect("unable to convert to str"),
                     file.file.branch.clone(),
-                ),
+                ],
             )
             .await
             .expect("error executing insert");
-        0 != RowsIter::new(&mut result)
+
+        0 != result
             .next()
+            .await
             .expect("iterator empty")
+            .expect("empyt")
             .get::<u32>(0)
             .expect("couldnt get the value")
     }
@@ -120,16 +130,16 @@ impl FileFacadeFactory {
 
     pub fn set_comparaison(
         mut self,
-        techniques: &[ComparaisonTechnique],
+        technique: &ComparaisonTechnique,
         path: &Option<PathBuf>,
     ) -> Self {
-        self.comparaison = Some(Comparaison::new(techniques, path));
+        self.comparaison = Some(Comparaison::new(technique, path));
         self
     }
 
-    fn to_facade(&self, path: &Path) -> FileFacade {
+    async fn to_facade(&self, path: &Path) -> FileFacade {
         let file = File::new(path, &self.branch, &self.history_dir, self.timestamp);
-        let logbook = FileLogbook::new(path, &self.logbooks_dir);
+        let logbook = FileLogbook::new(path, &self.logbooks_dir).await;
         let facade = FileFacade::new(file).set_logbook(logbook);
         match (self.comparaison.is_some(), self.remote.is_some()) {
             // We are pushing so we need the remote info
@@ -142,24 +152,22 @@ impl FileFacadeFactory {
             _ => todo!("why have we comparaison and remote"),
         }
     }
-}
 
-impl Iterator for FileFacadeFactory {
-    type Item = FileFacade;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.stack.pop_front().map(|p| {
+    pub async fn next(&mut self) -> Option<FileFacade> {
+        if let Some(p) = self.stack.pop_front() {
             if p.is_dir() {
                 p.read_dir()
                     .unwrap()
                     .for_each(|p| self.stack.push_back(p.unwrap().path()));
             }
-            self.to_facade(&p)
-        })
+            Some(self.to_facade(&p).await)
+        } else {
+            None
+        }
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
 pub struct File {
     path: PathBuf,
     history: String,
@@ -197,27 +205,42 @@ impl File {
     }
 }
 
+impl LogbookProvider for File {
+    fn query(&self) -> String {
+        "INSERT INTO files (timestamp, path, branch_id) VALUES (?1, ?2, ?3)".to_string()
+    }
+    fn params(&self) -> Vec<String> {
+        vec![
+            self.timestamp.to_string(),
+            self.path.to_str().unwrap().to_owned(),
+            self.branch.to_owned(),
+        ]
+    }
+}
+
 #[derive(Default)]
-struct FileLogbook {
+pub struct FileLogbook {
     //TODO: maybe instead of multiple connections we could create only one and save everything in
     //batches
     conn: Option<Connection>,
 }
 
 impl FileLogbook {
-    pub fn new(file_path: &Path, logbooks_dir: &Path) -> Self {
+    pub async fn new(file_path: &Path, logbooks_dir: &Path) -> Self {
         //TODO: will path always be relative?
         let mut db_path = file_path.to_str().unwrap().to_string();
         db_path.push_str(".db");
         let final_path = logbooks_dir.join(db_path);
         fs::create_dir_all(final_path.parent().expect("no parent for local db"))
             .expect("unable to craete path to local db");
-        let db = Database::open(
+        let db = Builder::new_local(
             final_path
                 .to_str()
                 .expect("unable to conver to str")
                 .to_string(),
         )
+        .build()
+        .await
         .expect("unable to open local db");
         Self {
             conn: Some(db.connect().expect("Unable to connect to local db")),
@@ -238,58 +261,23 @@ impl FileLogbook {
         self
     }
 
-    pub async fn create_branch(&self, branch: &str, description: &str) {
+    pub async fn insert<'a, T: LogbookProvider>(&self, object: &'a T) -> &'a T {
+        //TODO: maybe return the branch as a struct
         self.conn()
-            .execute(
-                "INSERT INTO branches (name, description) VALUES (?1, ?2)",
-                params![timestamp, msg],
-            )
+            .execute(&object.query(), object.params())
             .await
             .expect("unable to save movement into project logbook");
-        self
-    }
-
-    pub async fn insert_commit(&self, branch: &str, timestamp: &i64, msg: &str) -> &Self {
-        self.conn()
-            .execute(
-                &format!(
-                    "INSERT INTO {}_commits (timestamp, message) VALUES (?1, ?2)",
-                    branch
-                ),
-                params![timestamp, msg],
-            )
-            .await
-            .expect("unable to save movement into project logbook");
-        self
-    }
-
-    pub async fn insert_snapshot(&self, branch: &str, timestamp: &i64) -> &Self {
-        // Create a table for the branch if it doesnt exists
-        // Save the new branch in the
-        self.conn()
-            .execute(
-                &format!(
-                    "CREATE TABLE IF NOT EXISTS {} (timestamp TIMESTAMP NOT NULL);",
-                    &branch
-                ),
-                (),
-            )
-            .await
-            .expect("unable to save movement into file logbook");
-
-        self.conn()
-            .execute(
-                &format!("INSERT INTO {} (timestamp) VALUES (?1)", &branch),
-                params![timestamp],
-            )
-            .await
-            .expect("unable to save movement into project logbook");
-        self
+        object
     }
 
     fn conn(&self) -> &Connection {
         self.conn.as_ref().unwrap()
     }
+}
+
+pub trait LogbookProvider {
+    fn query(&self) -> String;
+    fn params(&self) -> Vec<String>; 
 }
 
 #[derive(Default)]
@@ -310,21 +298,6 @@ impl FileFacade {
         }
     }
 
-    pub fn set_logbook(mut self, logbook: FileLogbook) -> Self {
-        self.logbook = logbook;
-        self
-    }
-
-    pub async fn keep_track(&self) -> &Self {
-        self.duplicate();
-        self.logbook.create_tables();
-        self
-    }
-
-    pub async fn commit(&self, msg: &str) -> &Self {
-        self
-    }
-
     pub fn history_path(&self) -> PathBuf {
         self.file.history_path()
     }
@@ -337,6 +310,10 @@ impl FileFacade {
         self.file.original_path()
     }
 
+    pub fn remote(&self) -> Remote {
+        self.remote.as_ref().unwrap().clone()
+    }
+
     pub fn set_remote(mut self, remote: &Remote) -> Self {
         self.remote = Some(remote.clone());
         self
@@ -347,19 +324,52 @@ impl FileFacade {
         self
     }
 
-    pub fn remote(&self) -> Remote {
-        self.remote.as_ref().unwrap().clone()
+    pub fn set_logbook(mut self, logbook: FileLogbook) -> Self {
+        self.logbook = logbook;
+        self
     }
 
+    fn comparaison(&self) -> &Comparaison {
+        self.comparaison.as_ref().unwrap()
+    }
+
+    // Add methods
+    pub async fn keep_track(&self) -> &Self {
+        self.duplicate();
+        self.logbook.create_tables().await;
+        self.logbook.insert(&self.file).await;
+        self
+    }
+
+    // Commit methods
+    pub fn has_changed(&self) -> bool {
+        self.changed
+    }
+
+    pub async fn commit(&self, msg: &str) -> &Self {
+        //TODO: if commiting we see that the file hasn't changed we may want to
+        //use a symlink
+        let previous = self.previous_version();
+        let diff = self.comparaison().compare(self, &previous).result();
+        self.logbook.insert(diff).await;
+        self.duplicate();
+        let commit = Commit::new(self.file.branch.clone(), self.file.clone(), previous.file, msg.to_owned()).set_diff(diff);
+        self.logbook.insert(&commit).await;
+        self
+    }
+
+    // Push methods
     pub async fn push(&self) -> &Self {
         //self.remote is the default remote storage. If we want to specify a remote from the cli
         // for a given file the in we'll be used instead of the default
         // TODO: save all the files config as the remote and so on.
         push_file(self).await;
+        self.logbook.insert(&self.file).await;
         self
     }
 
-    pub fn previous_version(&self) -> PathBuf {
+    // Utils
+    pub fn previous_version(&self) -> FileFacade {
         //TODO: for now just look in the history dir, later on check the dabbatase and find the
         //previous file even if remote
         //TODO: check if we want to keep this list in memory
@@ -380,17 +390,14 @@ impl FileFacade {
         files.sort();
         //TODO: poping the last elemnt will do the trick for now. find a better way to find the
         //previous
-        let prev_version = files.pop().unwrap().to_string();
-        self.file.history_dir().join(Path::new(&prev_version))
-    }
-
-    pub fn compare(&mut self) -> &mut Self {
-        self.changed = self.comparaison.as_ref().unwrap().compare(self);
-        self
-    }
-
-    pub fn has_changed(&self) -> bool {
-        self.changed
+        let prev_timestamp = files.pop().unwrap();
+        let file = File::new(
+            &self.file.path,
+            &self.file.branch,
+            &self.file.history,
+            prev_timestamp,
+        );
+        FileFacade::new(file)
     }
 
     pub fn duplicate(&self) -> &Self {

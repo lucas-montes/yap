@@ -7,76 +7,115 @@ use std::{
 use clap::ValueEnum;
 use meowhash::MeowHasher;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-use super::file::FileFacade;
+use crate::config::Author;
 
-#[derive(ValueEnum, Debug, Clone, Deserialize, PartialEq, Serialize)]
+use super::file::{File, FileFacade, LogbookProvider};
+
+#[derive(ValueEnum, Default, Debug, Clone, Deserialize, PartialEq, Serialize)]
 pub enum ComparaisonTechnique {
     Hash,
     Custom,
     Similarity,
+    #[default]
     Smart,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
+pub struct Diff {
+    git_commit: Option<String>,
+    result_path: PathBuf,
+    script: PathBuf,
+    result: Value,
+    file_from: File,
+    file_to: File,
+    branch: String,
+    author: Author,
+    techniques: Vec<ComparaisonTechnique>,
+}
+impl LogbookProvider for Diff{
+    fn query(&self) -> String {
+        todo!()
+    }
+
+    fn params(&self) -> Vec<String> {
+        todo!()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
 pub struct Comparaison {
     #[serde(default)]
-    techniques: Vec<ComparaisonTechnique>,
+    technique: ComparaisonTechnique,
     #[serde(default)]
     path: Option<PathBuf>,
+    #[serde(default)]
+    result: Option<Diff>,
 }
 
 impl Comparaison {
-    pub fn new(techniques: &[ComparaisonTechnique], path: &Option<PathBuf>) -> Self {
+    pub fn new(technique: &ComparaisonTechnique, path: &Option<PathBuf>) -> Self {
         Self {
-            techniques: techniques.to_vec(),
+            technique: technique.to_owned(),
             path: path.to_owned(),
+            result: None,
         }
     }
 
-    pub fn compare(&self, file: &FileFacade) -> bool {
-        let technique = &self.techniques[0];
-        !match technique {
-            ComparaisonTechnique::Hash => compare_hash(file),
-            ComparaisonTechnique::Custom => compare_custom(
-                file,
+    pub fn result(&self) -> &Diff {
+        self.result.as_ref().unwrap()
+    }
+
+    pub fn compare(&self, current: &FileFacade, previous: &FileFacade) -> &Self {
+        match self.technique {
+            ComparaisonTechnique::Hash => self.compare_hash(current, previous),
+            ComparaisonTechnique::Custom => self.compare_custom(
+                current,
+                previous,
                 self.path.as_ref().expect(
                     "You must provide a script if you select the custom comparaison technique",
                 ),
             ),
-            ComparaisonTechnique::Similarity => compare_similarity(file),
-            ComparaisonTechnique::Smart => compare_smart(file),
+            ComparaisonTechnique::Similarity => self.compare_similarity(current, previous),
+            ComparaisonTechnique::Smart => self.compare_smart(current, previous),
+        };
+        self
+    }
+
+    pub fn compare_smart(&self, current: &FileFacade, previous: &FileFacade) -> bool {
+        let simple = self.compare_hash(current, previous);
+        match current
+            .original_path()
+            .extension()
+            .and_then(OsStr::to_str)
+            .unwrap()
+        {
+            "md" => self.compare_similarity(current, previous) & simple,
+            "parquet" => self.compare_similarity(current, previous) & simple,
+            _ => simple,
         }
     }
-}
-
-pub fn compare_smart(file: &FileFacade) -> bool {
-    let simple = compare_hash(file);
-    match file
-        .original_path()
-        .extension()
-        .and_then(OsStr::to_str)
-        .unwrap()
-    {
-        "md" => compare_similarity(file) & simple,
-        "parquet" => compare_similarity(file) & simple,
-        _ => simple,
+    pub fn compare_similarity(&self, current: &FileFacade, previous: &FileFacade) -> bool {
+        //TODO: rm this awesome trick
+        self.compare_hash(current, previous)
     }
-}
-pub fn compare_similarity(file: &FileFacade) -> bool {
-    //TODO: rm this awesome trick
-    compare_hash(file)
-}
-//TODO: create the functions to compare parquets files with polars, the function to compare text
-//only files and the one to call the custom script
-pub fn compare_custom(_file: &FileFacade, _script: &Path) -> bool {
-    todo!()
-}
-pub fn compare_hash(file: &FileFacade) -> bool {
-    let current_file = fs::read(file.original_path()).expect("cannot open orinigal file");
-    let current = MeowHasher::hash(&current_file);
-    //TODO: better handl errors
-    let previous_file = fs::read(file.previous_version()).expect("cannot open previous copy");
-    let previous = MeowHasher::hash(&previous_file);
-    current.eq(&previous)
+    //TODO: create the functions to compare parquets files with polars, the function to compare text
+    //only files and the one to call the custom script
+    pub fn compare_custom(
+        &self,
+        _current: &FileFacade,
+        _previous: &FileFacade,
+        _script: &Path,
+    ) -> bool {
+        todo!()
+    }
+    pub fn compare_hash(&self, current: &FileFacade, previous: &FileFacade) -> bool {
+        let current_file = fs::read(current.original_path()).expect("cannot open orinigal file");
+        let current = MeowHasher::hash(&current_file);
+        //TODO: better handl errors
+        let previous_file = fs::read(previous.original_path()).expect("cannot open previous copy");
+        let previous = MeowHasher::hash(&previous_file);
+        current.eq(&previous)
+    }
 }

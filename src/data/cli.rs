@@ -1,10 +1,7 @@
-use futures::stream::StreamExt;
-
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use super::comparaison::ComparaisonTechnique;
-use super::file::{FileFacade,Logbook, FileFacadeFactory};
+use super::file::{FileFacade, FileFacadeFactory, Logbook};
 use crate::remote::{pull_file, Storage};
 use crate::{
     config::Config,
@@ -77,24 +74,20 @@ pub struct AddData {
 
 impl AddData {
     async fn run(&self, config: &Config) -> i16 {
-        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, config);
-        let root_logbook = Arc::new(Logbook::local(&config.local_db()));
+        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch, config);
+        let root_logbook = Logbook::local(&config.local_db()).await;
 
-        futures::stream::iter(files)
-            .for_each(|f| {
-                let root_logbook = Arc::clone(&root_logbook);
-                async move {
-                    self.handle_file(&f, root_logbook).await;
-                }
-            })
-            .await;
+        while let Some(mut f) = files.next().await {
+            self.handle_file(&mut f, &root_logbook).await;
+        }
         0
     }
 
-    async fn handle_file(&self, file: &FileFacade, root_logbook: Arc<Logbook>) {
+    async fn handle_file(&self, file: &FileFacade, root_logbook: &Logbook) {
         if !root_logbook.file_is_tracked(file).await {
             let file = file.keep_track().await;
-            root_logbook.insert_log(file, &Events::Add).await;
+            root_logbook.track_file(file.path()).await;
+            root_logbook.save_event(file, &Events::Add).await;
         };
     }
 }
@@ -113,11 +106,10 @@ pub struct CommitData {
     #[arg(
         short,
         long,
-        num_args = 1..,
         default_value = "smart",
         value_enum
     )]
-    comparaisons: Vec<ComparaisonTechnique>,
+    comparaison: ComparaisonTechnique,
 
     // Path to the script to execute when the comparaison technique is Custom
     #[arg(short, long, required = false)]
@@ -126,29 +118,20 @@ pub struct CommitData {
 
 impl CommitData {
     async fn run(&self, config: &Config) -> i16 {
-        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, config)
-            .set_comparaison(&self.comparaisons, &self.script);
-        let root_logbook = Arc::new(Logbook::local(&config.local_db()));
+        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch, config)
+            .set_comparaison(&self.comparaison, &self.script);
+        let root_logbook = Logbook::local(&config.local_db()).await;
 
-        futures::stream::iter(files)
-            .for_each(|mut f| {
-                let root_logbook = Arc::clone(&root_logbook);
-                async move {
-                    self.handle_file(&mut f, root_logbook).await;
-                }
-            })
-            .await;
+        while let Some(mut f) = files.next().await {
+            self.handle_file(&mut f, &root_logbook).await;
+        }
         0
     }
 
-    async fn handle_file(&self, file: &mut FileFacade, root_logbook: Arc<Logbook>) {
-        if file.compare().has_changed() {
-            let file = file
-                .duplicate()
-                .commit(&self.message)
-                .await;
+    async fn handle_file(&self, file: &mut FileFacade, root_logbook: &Logbook) {
+        if file.commit(&self.message).await.has_changed() {
             //TODO: save the comparaison results
-            root_logbook.insert_log(file, &Events::Commit).await;
+            root_logbook.save_event(file, &Events::Commit).await;
         }
     }
 }
@@ -164,37 +147,31 @@ pub struct PushData {
     #[arg(short, long, value_enum)]
     remote: Option<Storage>,
 
-    #[arg(
-        short,
-        long,
-        value_enum
-    )]
+    #[arg(short, long, value_enum)]
     strategy: Option<PushStrategy>,
 }
 
 impl PushData {
     async fn run(&self, config: &Config) -> i16 {
-        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, config)
-            .set_remote(config, &self.remote, &self.strategy);
-        let root_logbook = Arc::new(Logbook::local(&config.local_db()));
+        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch, config).set_remote(
+            config,
+            &self.remote,
+            &self.strategy,
+        );
+        let root_logbook = Logbook::local(&config.local_db()).await;
 
-        futures::stream::iter(files)
-            .for_each(|mut f| {
-                let root_logbook = Arc::clone(&root_logbook);
-                async move {
-                    self.handle_file(&mut f, root_logbook).await;
-                }
-            })
-            .await;
+        while let Some(mut f) = files.next().await {
+            self.handle_file(&mut f, &root_logbook).await;
+        }
         0
     }
 
-    async fn handle_file(&self, file: &mut FileFacade, root_logbook: Arc<Logbook>) {
+    async fn handle_file(&self, file: &mut FileFacade, root_logbook: &Logbook) {
         let file = file.push().await;
         //TODO: push the comparaison results
         //TODO: it would be cool to save the errors if any from the copies and so on and save them
         // in the db
-        root_logbook.insert_log(file, &Events::Push).await;
+        root_logbook.save_event(file, &Events::Push).await;
     }
 }
 
@@ -229,23 +206,21 @@ pub struct PullData {
 
 impl PullData {
     async fn run(&self, config: &Config) -> i16 {
-        let files = FileFacadeFactory::new(self.paths.clone(), &self.branch, config)
-            .set_remote(config, &self.remote, &None);
-        let root_logbook = Arc::new(Logbook::local(&config.local_db()));
+        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch, config).set_remote(
+            config,
+            &self.remote,
+            &None,
+        );
+        let root_logbook = Logbook::local(&config.local_db()).await;
 
-        futures::stream::iter(files)
-            .for_each(|mut f| {
-                let root_logbook = Arc::clone(&root_logbook);
-                async move {
-                    self.handle_file(&mut f, root_logbook).await;
-                }
-            })
-            .await;
+        while let Some(mut f) = files.next().await {
+            self.handle_file(&mut f, &root_logbook).await;
+        }
         0
     }
 
-    async fn handle_file(&self, file: &mut FileFacade, root_logbook: Arc<Logbook>) {
+    async fn handle_file(&self, file: &mut FileFacade, root_logbook: &Logbook) {
         pull_file(file).await;
-        root_logbook.insert_log(file, &Events::Pull);
+        root_logbook.save_event(file, &Events::Pull).await;
     }
 }
