@@ -1,10 +1,11 @@
 use core::panic;
+use std::fmt;
 use std::io::prelude::*;
 use std::path::PathBuf;
 use std::{fs::File, path::Path};
 
 use clap::{Args, Subcommand};
-use libsql::Database;
+use libsql::Builder;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 
@@ -63,8 +64,21 @@ impl ConfigCommands {
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
 pub struct Author {
+    pk: Option<u32>,
     name: String,
     email: String,
+}
+
+impl Author {
+    pub fn pk(&self)->String{
+        format!("{} <{}<>", &self.name, &self.email)
+    }
+}
+
+impl fmt::Display for Author {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} <{}>", self.name, self.email)
+    }
 }
 
 #[derive(Debug, Args, Deserialize, Default, Serialize, PartialEq, Clone)]
@@ -112,9 +126,12 @@ impl Config {
         }
     }
 
+    pub fn author(&self) -> Author {
+        self.author.clone()
+    }
+
     pub fn remote_storage(&self) -> Remote {
-        println!("{:?}", &self.remote);
-        Remote::new()
+        self.remote.clone()
     }
 
     pub fn root(&self, path: &str) -> String {
@@ -192,15 +209,20 @@ impl Config {
             let local_default = "logbook.db";
             self.local_db = local_default.to_string();
         }
-        let db = Database::open(self.local_db()).expect("unable to open to local");
-        let conn = db.connect().expect("unable to connect to local db");
-        conn
-            .execute(
-                "CREATE TABLE IF NOT EXISTS events (file VARCHAR(150) NOT NULL, branch VARCHAR(150) NOT NULL, timestamp TIMESTAMP NOT NULL, event VARCHAR(10) NOT NULL);",
-                (),
-            )
+        let db = Builder::new_local(self.local_db())
+            .build()
             .await
-            .expect("unable to create table events into user logbook");
+            .expect("unable to open to local");
+        let conn = db.connect().expect("unable to connect to local db");
+        let query = match tokio::fs::read_to_string("migrations/master_logbook.sql").await {
+            Ok(sql) => sql,
+            Err(err) => {
+                panic!("{err}");
+            }
+        };
+        conn.execute_batch(&query)
+            .await
+            .expect("unable to create tables into file logbook");
         self
     }
 
@@ -292,7 +314,7 @@ fn toml_to_struct<T: for<'a> Deserialize<'a>>(path: &str) -> T {
     let mut toml_string = String::new();
     file.read_to_string(&mut toml_string)
         .expect("Unable to read file");
-    toml::from_str(&toml_string).expect("Unable to parse TOML")
+    toml::from_str(&toml_string).expect("Unable to parse TOML. This might be caused by a missing quote in a string value for example.")
 }
 
 fn struct_to_toml<T: Serialize>(instance: &T, path: &str) {

@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::process::Command;
 
 use super::comparaison::ComparaisonTechnique;
 use super::file::{FileFacade, FileFacadeFactory, Logbook};
@@ -63,12 +64,27 @@ impl DataCommands {
     }
 }
 
+fn get_git_branch() -> String {
+    match Command::new("git")
+        .args(&["rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+    {
+        Ok(v) => String::from_utf8(v.stdout).unwrap(),
+        Err(err) => {
+            println!("{}", err);
+            "master".to_string()
+        }
+    }
+}
+
+//TODO: how to manage branches? manage branches like git where you only can have only one at the
+//time or do we want to allow the branch to be passed when doing an operation or with git_sync
 #[derive(Debug, Args, Clone)]
 pub struct AddData {
     #[arg(short, long,num_args = 1..)]
     paths: Vec<PathBuf>,
 
-    #[arg(short, long, default_value = "master")]
+    #[arg(short, long, default_value = "get_git_branch")]
     branch: String,
 }
 
@@ -86,7 +102,7 @@ impl AddData {
     async fn handle_file(&self, file: &FileFacade, root_logbook: &Logbook) {
         if !root_logbook.file_is_tracked(file).await {
             let file = file.keep_track().await;
-            root_logbook.track_file(file.path()).await;
+            root_logbook.track_file(file).await;
             root_logbook.save_event(file, &Events::Add).await;
         };
     }
@@ -103,12 +119,7 @@ pub struct CommitData {
     #[arg(short, long)]
     message: String,
 
-    #[arg(
-        short,
-        long,
-        default_value = "smart",
-        value_enum
-    )]
+    #[arg(short, long, default_value = "smart", value_enum)]
     comparaison: ComparaisonTechnique,
 
     // Path to the script to execute when the comparaison technique is Custom
@@ -147,17 +158,15 @@ pub struct PushData {
     #[arg(short, long, value_enum)]
     remote: Option<Storage>,
 
-    #[arg(short, long, value_enum)]
+    #[arg(short, long, value_enum, default_value = None)]
     strategy: Option<PushStrategy>,
 }
 
 impl PushData {
     async fn run(&self, config: &Config) -> i16 {
-        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch, config).set_remote(
-            config,
-            &self.remote,
-            &self.strategy,
-        );
+        println!("{:?}", self);
+        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch, config)
+            .set_remote(config, &self.remote, &self.strategy);
         let root_logbook = Logbook::local(&config.local_db()).await;
 
         while let Some(mut f) = files.next().await {
@@ -206,11 +215,8 @@ pub struct PullData {
 
 impl PullData {
     async fn run(&self, config: &Config) -> i16 {
-        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch, config).set_remote(
-            config,
-            &self.remote,
-            &None,
-        );
+        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch, config)
+            .set_remote(config, &self.remote, &None);
         let root_logbook = Logbook::local(&config.local_db()).await;
 
         while let Some(mut f) = files.next().await {

@@ -31,7 +31,7 @@ pub struct Remote {
 
 impl Remote {
     pub fn new() -> Self {
-        Self::default().set_credentials()
+        Self::default().set_password().set_credentials()
     }
 
     pub fn set_strategy(mut self, strategy: &PushStrategy) -> Self {
@@ -44,12 +44,19 @@ impl Remote {
         self
     }
 
+    fn set_password(mut self) -> Self {
+        self.password = get_env(&self.password);
+        self
+    }
+
+
     fn set_credentials(mut self) -> Self {
         self.credentials = get_env("GSC_CREDENTIALS");
         self
     }
 
     fn get_storage_operator(&self) -> Operator {
+        println!("{:?}", self);
         match self.storage {
             Storage::Gcs => self.create_gcs(),
             Storage::Koofr => self.create_koofr(),
@@ -118,7 +125,7 @@ pub async fn push_file(file: &FileFacade) {
     let remote = file.remote();
     let operator = remote.get_storage_operator();
     let data = tokio::fs::read(file.original_path()).await.unwrap();
-    let _result = operator.write(file.path().to_str().unwrap(), data).await;
+    operator.write(file.path().to_str().unwrap(), data).await.unwrap();
 }
 
 pub async fn pull_file(file: &FileFacade) {

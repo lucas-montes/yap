@@ -1,21 +1,23 @@
 use libsql::{params, Builder, Connection, Database};
 use std::{
     collections::VecDeque,
-    env, fs,
+    env,
+    fmt::Debug,
+    fs,
     path::{Path, PathBuf},
 };
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    config::Config,
+    config::{Author, Config},
     remote::{push_file, Remote, Storage},
 };
 use crate::{enums::Events, remote::PushStrategy};
 
 use super::{
     comparaison::{Comparaison, ComparaisonTechnique},
-    versioning::Commit,
+    versioning::{get_latest_git_commit, Commit},
 };
 
 pub struct Logbook {
@@ -50,7 +52,7 @@ impl Logbook {
                 ],
             )
             .await
-            .expect("error executing insert");
+            .expect("error checking if the files is already tracked");
 
         0 != result
             .next()
@@ -73,17 +75,23 @@ impl Logbook {
                 ],
             )
             .await
-            .expect("error executing insert");
+            .expect(&format!(
+                "error saving the event: {:?} for the file {:?}",
+                event, file
+            ));
     }
 
-    pub async fn track_file(&self, path: &Path) {
+    pub async fn track_file(&self, file: &FileFacade) {
         self.conn()
             .execute(
-                "INSERT INTO files (path) VALUES (?1)",
-                params![path.to_str().expect("unable to convert to str"),],
+                "INSERT INTO files (path, branch) VALUES (?1, ?2)",
+                params![
+                    file.path().to_str().expect("unable to convert to str"),
+                    file.branch()
+                ],
             )
             .await
-            .expect("error executing insert");
+            .expect("error erting the newly tracked file");
     }
 }
 
@@ -94,6 +102,7 @@ pub struct FileFacadeFactory {
     history_dir: String,
     logbooks_dir: PathBuf,
     timestamp: i64,
+    author: Author,
     remote: Option<Remote>,
     comparaison: Option<Comparaison>,
     stack: VecDeque<PathBuf>,
@@ -105,6 +114,7 @@ impl FileFacadeFactory {
             branch: branch.to_owned(),
             history_dir: config.history_dir().to_owned(),
             logbooks_dir: config.logbooks_dir().to_owned(),
+            author: config.author(),
             timestamp: chrono::offset::Local::now().timestamp(),
             stack: VecDeque::from(paths),
             ..Self::default()
@@ -118,6 +128,7 @@ impl FileFacadeFactory {
         strategy: &Option<PushStrategy>,
     ) -> Self {
         let mut default_remote = config.remote_storage();
+        println!("def remote: {:?}", &default_remote);
         if let Some(rem) = remote {
             default_remote = default_remote.set_storage(rem);
         }
@@ -138,7 +149,13 @@ impl FileFacadeFactory {
     }
 
     async fn to_facade(&self, path: &Path) -> FileFacade {
-        let file = File::new(path, &self.branch, &self.history_dir, self.timestamp);
+        let file = File::new(
+            path,
+            &self.branch,
+            &self.history_dir,
+            self.timestamp,
+            self.author.clone(),
+        );
         let logbook = FileLogbook::new(path, &self.logbooks_dir).await;
         let facade = FileFacade::new(file).set_logbook(logbook);
         match (self.comparaison.is_some(), self.remote.is_some()) {
@@ -169,6 +186,8 @@ impl FileFacadeFactory {
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
 pub struct File {
+    pk: Option<u32>,
+    author: Author,
     path: PathBuf,
     history: String,
     branch: String,
@@ -176,12 +195,14 @@ pub struct File {
 }
 
 impl File {
-    pub fn new(path: &Path, branch: &str, history: &str, timestamp: i64) -> Self {
+    pub fn new(path: &Path, branch: &str, history: &str, timestamp: i64, author: Author) -> Self {
         Self {
+            pk: None,
             path: path.to_path_buf(),
             branch: branch.to_string(),
             history: history.to_string(),
             timestamp,
+            author,
         }
     }
 
@@ -206,23 +227,24 @@ impl File {
 }
 
 impl LogbookProvider for File {
-    fn query(&self) -> String {
-        "INSERT INTO files (timestamp, path, branch_id) VALUES (?1, ?2, ?3)".to_string()
+    async fn query(&self) -> String {
+        "INSERT INTO files (timestamp, path, branch, branch) VALUES (?1, ?2, ?3, ?4)".to_string()
     }
-    fn params(&self) -> Vec<String> {
+    async fn params(&self) -> Vec<String> {
         vec![
             self.timestamp.to_string(),
             self.path.to_str().unwrap().to_owned(),
             self.branch.to_owned(),
+            self.author.pk(), //TODO: add the authors all over the place
         ]
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct FileLogbook {
     //TODO: maybe instead of multiple connections we could create only one and save everything in
     //batches
-    conn: Option<Connection>,
+    db: Option<Database>,
 }
 
 impl FileLogbook {
@@ -242,12 +264,10 @@ impl FileLogbook {
         .build()
         .await
         .expect("unable to open local db");
-        Self {
-            conn: Some(db.connect().expect("Unable to connect to local db")),
-        }
+        Self { db: Some(db) }
     }
 
-    pub async fn create_tables(&self) -> &Self {
+    pub async fn create(&self) -> &Self {
         let query = match tokio::fs::read_to_string("migrations/file_logbook.sql").await {
             Ok(sql) => sql,
             Err(err) => {
@@ -255,32 +275,39 @@ impl FileLogbook {
             }
         };
         self.conn()
-            .execute(&query, ())
+            .execute_batch(&query)
             .await
             .expect("unable to create tables into file logbook");
         self
     }
 
-    pub async fn insert<'a, T: LogbookProvider>(&self, object: &'a T) -> &'a T {
+    pub async fn insert<'a, T: LogbookProvider + Debug>(&self, object: &'a T) -> &'a T {
         //TODO: maybe return the branch as a struct
         self.conn()
-            .execute(&object.query(), object.params())
+            .execute(&object.query().await, object.params().await)
             .await
-            .expect("unable to save movement into project logbook");
+            .expect(&format!(
+                "unable to save movement into project logbook {:?}",
+                object
+            ));
         object
     }
 
-    fn conn(&self) -> &Connection {
-        self.conn.as_ref().unwrap()
+    fn conn(&self) -> Connection {
+        self.db
+            .as_ref()
+            .unwrap()
+            .connect()
+            .expect("Unable to connect to local db")
     }
 }
 
 pub trait LogbookProvider {
-    fn query(&self) -> String;
-    fn params(&self) -> Vec<String>; 
+    async fn query(&self) -> String;
+    async fn params(&self) -> Vec<String>;
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct FileFacade {
     changed: bool,
     file: File,
@@ -298,8 +325,16 @@ impl FileFacade {
         }
     }
 
+    pub fn file(&self) -> File {
+        self.file.clone()
+    }
+
     pub fn history_path(&self) -> PathBuf {
         self.file.history_path()
+    }
+
+    pub fn branch(&self) -> &str {
+        &self.file.branch
     }
 
     pub fn path(&self) -> &Path {
@@ -329,14 +364,14 @@ impl FileFacade {
         self
     }
 
-    fn comparaison(&self) -> &Comparaison {
-        self.comparaison.as_ref().unwrap()
+    fn comparaison(&self) -> Comparaison {
+        self.comparaison.as_ref().unwrap().clone()
     }
 
     // Add methods
     pub async fn keep_track(&self) -> &Self {
-        self.duplicate();
-        self.logbook.create_tables().await;
+        self.duplicate().await;
+        self.logbook.create().await;
         self.logbook.insert(&self.file).await;
         self
     }
@@ -351,9 +386,18 @@ impl FileFacade {
         //use a symlink
         let previous = self.previous_version();
         let diff = self.comparaison().compare(self, &previous).result();
-        self.logbook.insert(diff).await;
-        self.duplicate();
-        let commit = Commit::new(self.file.branch.clone(), self.file.clone(), previous.file, msg.to_owned()).set_diff(diff);
+        self.logbook.insert(&diff).await;
+        self.duplicate().await;
+        let git_commit = get_latest_git_commit().await;
+        let commit = Commit::new(
+            self.file.branch.clone(),
+            self.file.clone(),
+            previous.file,
+            msg.to_owned(),
+            self.file.author.clone(),
+        )
+        .set_diff(&diff)
+        .set_git_commit(git_commit);
         self.logbook.insert(&commit).await;
         self
     }
@@ -396,24 +440,27 @@ impl FileFacade {
             &self.file.branch,
             &self.file.history,
             prev_timestamp,
+            self.file.author.clone(),
         );
         FileFacade::new(file)
     }
 
-    pub fn duplicate(&self) -> &Self {
+    pub async fn duplicate(&self) -> &Self {
         let file = self.file.original_path();
         let local_path = self.file.history_path();
-        // TODO: make this async? can be done with tokio?
-        fs::create_dir_all(
+        tokio::fs::create_dir_all(
             local_path
                 .parent()
                 .expect("unable to get duplciate local path parent"),
         )
+        .await
         .expect("Couldn't create dirs");
-        fs::create_dir_all(local_path.parent().unwrap()).unwrap();
-        match fs::copy(file, &local_path) {
+        tokio::fs::create_dir_all(local_path.parent().unwrap())
+            .await
+            .unwrap();
+        match fs::copy(&file, &local_path) {
             Ok(_) => self,
-            Err(err) => panic!("{}", err),
+            Err(err) => panic!("{}: {:?}", err, &file),
         }
     }
 }
