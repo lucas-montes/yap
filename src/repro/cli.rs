@@ -89,7 +89,6 @@ fn parse_stages(path: &PathBuf) -> Pipeline {
 }
 
 fn read_yaml<T: for<'de> serde::Deserialize<'de>>(path: &PathBuf) -> T {
-    println!("{path:?}");
     match std::fs::File::open(path) {
         Ok(f) => serde_yaml::from_reader(f).unwrap(),
         Err(err) => todo!("{}", err),

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 use crate::enums::ColorWhen;
-use crate::remote::Remote;
+use crate::remote::RemoteConfig;
 
 use turso::{
     DatabasesPlatform, GroupsPlatform, LocationsPlatform, OrganizationsPlatform, TursoClient,
@@ -70,7 +70,7 @@ pub struct Author {
 }
 
 impl Author {
-    pub fn pk(&self)->String{
+    pub fn pk(&self) -> String {
         format!("{} <{}<>", &self.name, &self.email)
     }
 }
@@ -109,7 +109,7 @@ pub struct Config {
     history_dir: String,
     #[clap(skip)]
     #[serde(default)]
-    remote: Remote,
+    remote: RemoteConfig,
     #[clap(skip)]
     #[serde(default)]
     author: Author,
@@ -130,7 +130,7 @@ impl Config {
         self.author.clone()
     }
 
-    pub fn remote_storage(&self) -> Remote {
+    pub fn remote_storage(&self) -> RemoteConfig {
         self.remote.clone()
     }
 

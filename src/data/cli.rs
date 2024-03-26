@@ -65,11 +65,12 @@ impl DataCommands {
 }
 
 fn get_git_branch() -> String {
+    //TODO: rename this function
     match Command::new("git")
         .args(&["rev-parse", "--abbrev-ref", "HEAD"])
         .output()
     {
-        Ok(v) => String::from_utf8(v.stdout).unwrap(),
+        Ok(v) => String::from_utf8(v.stdout).unwrap().trim().to_owned(),
         Err(err) => {
             println!("{}", err);
             "master".to_string()
@@ -84,13 +85,13 @@ pub struct AddData {
     #[arg(short, long,num_args = 1..)]
     paths: Vec<PathBuf>,
 
-    #[arg(short, long, default_value = "get_git_branch")]
-    branch: String,
+    #[arg(short, long, required=false)]
+    branch: Option<String>,
 }
 
 impl AddData {
     async fn run(&self, config: &Config) -> i16 {
-        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch, config);
+        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch.as_ref().unwrap_or(&get_git_branch()), config);
         let root_logbook = Logbook::local(&config.local_db()).await;
 
         while let Some(mut f) = files.next().await {
@@ -113,8 +114,8 @@ pub struct CommitData {
     #[arg(short, long, num_args = 1..)]
     paths: Vec<PathBuf>,
 
-    #[arg(short, long, default_value = "master")]
-    branch: String,
+    #[arg(short, long, required=false)]
+    branch: Option<String>,
 
     #[arg(short, long)]
     message: String,
@@ -129,7 +130,7 @@ pub struct CommitData {
 
 impl CommitData {
     async fn run(&self, config: &Config) -> i16 {
-        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch, config)
+        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch.as_ref().unwrap_or(&get_git_branch()), config)
             .set_comparaison(&self.comparaison, &self.script);
         let root_logbook = Logbook::local(&config.local_db()).await;
 
@@ -149,23 +150,22 @@ impl CommitData {
 
 #[derive(Debug, Args, Clone)]
 pub struct PushData {
-    #[arg(short, long)]
+    #[arg(short, long, num_args = 1..)]
     paths: Vec<PathBuf>,
 
-    #[arg(short, long, default_value = "master")]
-    branch: String,
+    #[arg(short, long, required=false)]
+    branch: Option<String>,
 
-    #[arg(short, long, value_enum)]
+    #[arg(short, long, value_enum, required=false)]
     remote: Option<Storage>,
 
-    #[arg(short, long, value_enum, default_value = None)]
+    #[arg(short, long, value_enum, default_value = None, required = false)]
     strategy: Option<PushStrategy>,
 }
 
 impl PushData {
     async fn run(&self, config: &Config) -> i16 {
-        println!("{:?}", self);
-        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch, config)
+        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch.as_ref().unwrap_or(&get_git_branch()), config)
             .set_remote(config, &self.remote, &self.strategy);
         let root_logbook = Logbook::local(&config.local_db()).await;
 
@@ -186,8 +186,11 @@ impl PushData {
 
 #[derive(Debug, Args, Clone)]
 pub struct RemoveData {
-    #[arg(short, long)]
+    #[arg(short, long, num_args = 1..)]
     paths: Vec<PathBuf>,
+
+    #[arg(short, long, required=false)]
+    branch: Option<String>,
 
     // Remove the files permanently. Meaning that it not only remove them from the source control
     // but also deletes them on the remote storage.
@@ -203,11 +206,11 @@ impl RemoveData {
 
 #[derive(Debug, Args, Clone)]
 pub struct PullData {
-    #[arg(short, long)]
+    #[arg(short, long, num_args = 1..)]
     paths: Vec<PathBuf>,
 
-    #[arg(short, long, default_value = "master")]
-    branch: String,
+    #[arg(short, long, required=false)]
+    branch: Option<String>,
 
     #[arg(short, long, value_enum)]
     remote: Option<Storage>,
@@ -215,7 +218,7 @@ pub struct PullData {
 
 impl PullData {
     async fn run(&self, config: &Config) -> i16 {
-        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch, config)
+        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch.as_ref().unwrap_or(&get_git_branch()), config)
             .set_remote(config, &self.remote, &None);
         let root_logbook = Logbook::local(&config.local_db()).await;
 

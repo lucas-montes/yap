@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     config::{Author, Config},
-    remote::{push_file, Remote, Storage},
+    remote::{push_file, RemoteConfig, Storage},
 };
 use crate::{enums::Events, remote::PushStrategy};
 
@@ -103,7 +103,7 @@ pub struct FileFacadeFactory {
     logbooks_dir: PathBuf,
     timestamp: i64,
     author: Author,
-    remote: Option<Remote>,
+    remote: Option<RemoteConfig>,
     comparaison: Option<Comparaison>,
     stack: VecDeque<PathBuf>,
 }
@@ -128,7 +128,6 @@ impl FileFacadeFactory {
         strategy: &Option<PushStrategy>,
     ) -> Self {
         let mut default_remote = config.remote_storage();
-        println!("def remote: {:?}", &default_remote);
         if let Some(rem) = remote {
             default_remote = default_remote.set_storage(rem);
         }
@@ -185,9 +184,42 @@ impl FileFacadeFactory {
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
+pub struct Remote {
+    pk: Option<u32>,
+    path: PathBuf,
+    strategy: PushStrategy,
+    storage: Storage,
+}
+
+impl Remote {
+    pub fn new(path: PathBuf, strategy: PushStrategy, storage: Storage) -> Self {
+        Self {
+            pk: None,
+            path,
+            strategy,
+            storage,
+        }
+    }
+}
+
+impl LogbookProvider for Remote {
+    async fn query(&self) -> String {
+        "INSERT INTO remotes (path, storage, strategy) VALUES (?1, ?2, ?3)".to_string()
+    }
+    async fn params(&self) -> Vec<String> {
+        vec![
+            self.path.to_str().unwrap().to_owned(),
+            self.storage.to_string(),
+            self.strategy.to_string(),
+        ]
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
 pub struct File {
     pk: Option<u32>,
     author: Author,
+    remote: Option<Remote>,
     path: PathBuf,
     history: String,
     branch: String,
@@ -203,7 +235,13 @@ impl File {
             history: history.to_string(),
             timestamp,
             author,
+            remote: None,
         }
+    }
+
+    fn set_remote(&mut self, remote: Remote) -> &Self {
+        self.remote = Some(remote);
+        self
     }
 
     pub fn original_path(&self) -> PathBuf {
@@ -228,7 +266,7 @@ impl File {
 
 impl LogbookProvider for File {
     async fn query(&self) -> String {
-        "INSERT INTO files (timestamp, path, branch, branch) VALUES (?1, ?2, ?3, ?4)".to_string()
+        "INSERT INTO files (timestamp, path, branch, author) VALUES (?1, ?2, ?3, ?4)".to_string()
     }
     async fn params(&self) -> Vec<String> {
         vec![
@@ -312,7 +350,7 @@ pub struct FileFacade {
     changed: bool,
     file: File,
     logbook: FileLogbook,
-    remote: Option<Remote>,
+    remote: Option<RemoteConfig>,
     comparaison: Option<Comparaison>,
 }
 
@@ -345,11 +383,11 @@ impl FileFacade {
         self.file.original_path()
     }
 
-    pub fn remote(&self) -> Remote {
+    pub fn remote(&self) -> RemoteConfig {
         self.remote.as_ref().unwrap().clone()
     }
 
-    pub fn set_remote(mut self, remote: &Remote) -> Self {
+    pub fn set_remote(mut self, remote: &RemoteConfig) -> Self {
         self.remote = Some(remote.clone());
         self
     }
@@ -403,11 +441,10 @@ impl FileFacade {
     }
 
     // Push methods
-    pub async fn push(&self) -> &Self {
-        //self.remote is the default remote storage. If we want to specify a remote from the cli
-        // for a given file the in we'll be used instead of the default
-        // TODO: save all the files config as the remote and so on.
-        push_file(self).await;
+    pub async fn push(&mut self) -> &Self {
+        let remote = push_file(self).await;
+        self.logbook.insert(&remote).await;
+        self.file.set_remote(remote);
         self.logbook.insert(&self.file).await;
         self
     }

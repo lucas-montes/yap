@@ -84,6 +84,7 @@ impl Diff {
 }
 
 impl LogbookProvider for Diff {
+    //TODO: some values are missing add them
     async fn query(&self) -> String {
         "INSERT INTO diffs (git_commit, result_path, script, result, technique, file_from, file_to, author, branch) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)".to_string()
     }

@@ -1,5 +1,3 @@
-
-
 use menva::get_env;
 use opendal::{
     services::{Gcs, Koofr, Pcloud},
@@ -9,10 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use clap::ValueEnum;
 
-use crate::data::FileFacade;
+use crate::data::{FileFacade, Remote};
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
-pub struct Remote {
+pub struct RemoteConfig {
     #[serde(default)]
     storage: Storage,
     #[serde(default)]
@@ -29,11 +27,7 @@ pub struct Remote {
     strategy: PushStrategy,
 }
 
-impl Remote {
-    pub fn new() -> Self {
-        Self::default().set_password().set_credentials()
-    }
-
+impl RemoteConfig {
     pub fn set_strategy(mut self, strategy: &PushStrategy) -> Self {
         self.strategy = strategy.to_owned();
         self
@@ -44,19 +38,11 @@ impl Remote {
         self
     }
 
-    fn set_password(mut self) -> Self {
-        self.password = get_env(&self.password);
-        self
-    }
-
-
-    fn set_credentials(mut self) -> Self {
-        self.credentials = get_env("GSC_CREDENTIALS");
-        self
+    fn password(&self) -> String {
+        get_env(&self.password)
     }
 
     fn get_storage_operator(&self) -> Operator {
-        println!("{:?}", self);
         match self.storage {
             Storage::Gcs => self.create_gcs(),
             Storage::Koofr => self.create_koofr(),
@@ -67,9 +53,9 @@ impl Remote {
     fn create_koofr(&self) -> Operator {
         let mut builder = Koofr::default();
         builder.root(&self.root);
-        builder.endpoint("https://api.koofr.net/");
+        builder.endpoint("https://api.koofr.net");
         builder.email(&self.username);
-        builder.password(&self.password);
+        builder.password(&self.password());
         match Operator::new(builder) {
             Ok(op) => op.finish(),
             Err(err) => panic!("{:?}", err),
@@ -79,9 +65,9 @@ impl Remote {
     fn create_pcloud(&self) -> Operator {
         let mut builder = Pcloud::default();
         builder.root(&self.root);
-        builder.endpoint("[https](https://eapi.pcloud.com)");
+        builder.endpoint("https://eapi.pcloud.com");
         builder.username(&self.username);
-        builder.password(&self.password);
+        builder.password(&self.password());
 
         match Operator::new(builder) {
             Ok(op) => op.finish(),
@@ -111,7 +97,14 @@ pub enum PushStrategy {
     #[default]
     Smart,
 }
-
+impl std::fmt::Display for PushStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.to_possible_value()
+            .expect("no values are skipped")
+            .get_name()
+            .fmt(f)
+    }
+}
 #[derive(ValueEnum, Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
 pub enum Storage {
     #[default]
@@ -120,18 +113,38 @@ pub enum Storage {
     Pcloud,
 }
 
-pub async fn push_file(file: &FileFacade) {
+impl std::fmt::Display for Storage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.to_possible_value()
+            .expect("no values are skipped")
+            .get_name()
+            .fmt(f)
+    }
+}
+
+pub async fn push_file(file: &FileFacade) -> Remote {
     //TODO: according to the push strategy we need to get and loop all the versions
     let remote = file.remote();
     let operator = remote.get_storage_operator();
     let data = tokio::fs::read(file.original_path()).await.unwrap();
-    operator.write(file.path().to_str().unwrap(), data).await.unwrap();
+    operator
+        .write(file.path().to_str().unwrap(), data)
+        .await
+        .unwrap();
+    Remote::new(file.path().to_path_buf(), remote.strategy, remote.storage)
 }
 
 pub async fn pull_file(file: &FileFacade) {
-    let remote = file.remote();
-    let operator = remote.get_storage_operator();
-    let result = operator.read(file.path().to_str().unwrap()).await.unwrap();
-    tokio::fs::create_dir_all(&file.history_path().parent().unwrap()).await.unwrap();
-    tokio::fs::write(&file.history_path(), &result).await.unwrap();
+    let result = file
+        .remote()
+        .get_storage_operator()
+        .read(file.path().to_str().unwrap())
+        .await
+        .unwrap();
+    tokio::fs::create_dir_all(&file.history_path().parent().unwrap())
+        .await
+        .unwrap();
+    tokio::fs::write(&file.history_path(), &result)
+        .await
+        .unwrap();
 }
