@@ -135,16 +135,21 @@ pub async fn push_file(file: &FileFacade) -> Remote {
 }
 
 pub async fn pull_file(file: &FileFacade) {
+    // TODO: when pushing and pulling from remote, how to know which files to get and send? keep
+    // the strategy think? probably no. How should we save the files on the remote? as they are in
+    // the history_path? probably.
+    if file.path().exists() {
+        println!("Already exists: {:?}", file.path())
+    }
     let result = file
         .remote()
         .get_storage_operator()
         .read(file.path().to_str().unwrap())
         .await
         .unwrap();
-    tokio::fs::create_dir_all(&file.history_path().parent().unwrap())
+    tokio::fs::create_dir_all(&file.path().parent().unwrap())
         .await
         .unwrap();
-    tokio::fs::write(&file.history_path(), &result)
-        .await
-        .unwrap();
+    tokio::fs::write(&file.path(), &result).await.unwrap();
+    println!("{:?} downloaded", file.path())
 }
