@@ -1,5 +1,7 @@
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::Stdio;
+use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
 
 use super::comparaison::ComparaisonTechnique;
 use super::file::{FileFacade, FileFacadeFactory, Logbook};
@@ -36,9 +38,11 @@ pub enum DataCommands {
     Add(AddData),
 
     /// Commit of one or many files
+    #[command(arg_required_else_help = true)]
     Commit(CommitData),
 
     /// Push the latest version of the selected files
+    #[command(arg_required_else_help = true)]
     Push(PushData),
 
     /// remove one object
@@ -48,6 +52,8 @@ pub enum DataCommands {
     /// Read one or more objects
     #[command(arg_required_else_help = true)]
     Pull(PullData),
+
+    Show(ShowData),
 }
 
 impl DataCommands {
@@ -59,16 +65,18 @@ impl DataCommands {
             DataCommands::Push(args) => args.run(&config).await,
             DataCommands::Pull(args) => args.run(&config).await,
             DataCommands::Remove(args) => args.run(&config).await,
+            DataCommands::Show(args) => args.run(&config).await,
         };
         0
     }
 }
 
-fn get_git_branch() -> String {
+async fn get_git_branch() -> String {
     //TODO: rename this function
     match Command::new("git")
         .args(&["rev-parse", "--abbrev-ref", "HEAD"])
         .output()
+        .await
     {
         Ok(v) => String::from_utf8(v.stdout).unwrap().trim().to_owned(),
         Err(err) => {
@@ -85,16 +93,20 @@ pub struct AddData {
     #[arg(short, long,num_args = 1..)]
     paths: Vec<PathBuf>,
 
-    #[arg(short, long, required=false)]
+    #[arg(short, long, required = false)]
     branch: Option<String>,
 }
 
 impl AddData {
     async fn run(&self, config: &Config) -> i16 {
-        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch.as_ref().unwrap_or(&get_git_branch()), config);
+        let mut files = FileFacadeFactory::new(
+            self.paths.clone(),
+            &self.branch.as_ref().unwrap_or(&get_git_branch().await),
+            config,
+        );
         let root_logbook = Logbook::local(&config.local_db()).await;
 
-        while let Some(mut f) = files.next().await {
+        while let Some(mut f) = files.anext().await {
             self.handle_file(&mut f, &root_logbook).await;
         }
         0
@@ -114,7 +126,7 @@ pub struct CommitData {
     #[arg(short, long, num_args = 1..)]
     paths: Vec<PathBuf>,
 
-    #[arg(short, long, required=false)]
+    #[arg(short, long, required = false)]
     branch: Option<String>,
 
     #[arg(short, long)]
@@ -130,11 +142,15 @@ pub struct CommitData {
 
 impl CommitData {
     async fn run(&self, config: &Config) -> i16 {
-        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch.as_ref().unwrap_or(&get_git_branch()), config)
-            .set_comparaison(&self.comparaison, &self.script);
+        let mut files = FileFacadeFactory::new(
+            self.paths.clone(),
+            &self.branch.as_ref().unwrap_or(&get_git_branch().await),
+            config,
+        )
+        .set_comparaison(&self.comparaison, &self.script);
         let root_logbook = Logbook::local(&config.local_db()).await;
 
-        while let Some(mut f) = files.next().await {
+        while let Some(mut f) = files.anext().await {
             self.handle_file(&mut f, &root_logbook).await;
         }
         0
@@ -153,10 +169,10 @@ pub struct PushData {
     #[arg(short, long, num_args = 1..)]
     paths: Vec<PathBuf>,
 
-    #[arg(short, long, required=false)]
+    #[arg(short, long, required = false)]
     branch: Option<String>,
 
-    #[arg(short, long, value_enum, required=false)]
+    #[arg(short, long, value_enum, required = false)]
     remote: Option<Storage>,
 
     #[arg(short, long, value_enum, default_value = None, required = false)]
@@ -165,11 +181,15 @@ pub struct PushData {
 
 impl PushData {
     async fn run(&self, config: &Config) -> i16 {
-        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch.as_ref().unwrap_or(&get_git_branch()), config)
-            .set_remote(config, &self.remote, &self.strategy);
+        let mut files = FileFacadeFactory::new(
+            self.paths.clone(),
+            &self.branch.as_ref().unwrap_or(&get_git_branch().await),
+            config,
+        )
+        .set_remote(config, &self.remote, &self.strategy);
         let root_logbook = Logbook::local(&config.local_db()).await;
 
-        while let Some(mut f) = files.next().await {
+        while let Some(mut f) = files.anext().await {
             self.handle_file(&mut f, &root_logbook).await;
         }
         0
@@ -189,18 +209,43 @@ pub struct RemoveData {
     #[arg(short, long, num_args = 1..)]
     paths: Vec<PathBuf>,
 
-    #[arg(short, long, required=false)]
+    #[arg(short, long, required = false)]
     branch: Option<String>,
+
+    #[arg(short, long, required = false)]
+    //TODO: do I want to delete by id?
+    // or even timestamp?
+    commit: Option<u32>,
+
+    #[arg(short, long, value_enum, required = false)]
+    remote: Option<Storage>,
 
     // Remove the files permanently. Meaning that it not only remove them from the source control
     // but also deletes them on the remote storage.
+    // TODO: convert this into an enum Local, Remote, All
     #[arg(short, long, default_value_t = false, required = false)]
-    permanently: bool,
+    which: bool,
 }
 
 impl RemoveData {
-    async fn run(&self, _config: &Config) -> i16 {
+    async fn run(&self, config: &Config) -> i16 {
+        let mut files = FileFacadeFactory::new(
+            self.paths.clone(),
+            &self.branch.as_ref().unwrap_or(&get_git_branch().await),
+            config,
+        )
+        .set_remote(config, &self.remote, &None);
+        let root_logbook = Logbook::local(&config.local_db()).await;
+
+        while let Some(mut f) = files.anext().await {
+            self.handle_file(&mut f, &root_logbook).await;
+        }
         0
+    }
+
+    async fn handle_file(&self, file: &mut FileFacade, root_logbook: &Logbook) {
+        let file = file.remove().await;
+        root_logbook.save_event(file, &Events::Remove).await;
     }
 }
 
@@ -209,7 +254,7 @@ pub struct PullData {
     #[arg(short, long, num_args = 1..)]
     paths: Vec<PathBuf>,
 
-    #[arg(short, long, required=false)]
+    #[arg(short, long, required = false)]
     branch: Option<String>,
 
     #[arg(short, long, value_enum)]
@@ -218,11 +263,15 @@ pub struct PullData {
 
 impl PullData {
     async fn run(&self, config: &Config) -> i16 {
-        let mut files = FileFacadeFactory::new(self.paths.clone(), &self.branch.as_ref().unwrap_or(&get_git_branch()), config)
-            .set_remote(config, &self.remote, &None);
+        let mut files = FileFacadeFactory::new(
+            self.paths.clone(),
+            &self.branch.as_ref().unwrap_or(&get_git_branch().await),
+            config,
+        )
+        .set_remote(config, &self.remote, &None);
         let root_logbook = Logbook::local(&config.local_db()).await;
 
-        while let Some(mut f) = files.next().await {
+        while let Some(mut f) = files.anext().await {
             self.handle_file(&mut f, &root_logbook).await;
         }
         0
@@ -231,5 +280,35 @@ impl PullData {
     async fn handle_file(&self, file: &mut FileFacade, root_logbook: &Logbook) {
         pull_file(file).await;
         root_logbook.save_event(file, &Events::Pull).await;
+    }
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct ShowData {
+    #[arg(short, long, num_args = 0..)]
+    paths: Vec<PathBuf>,
+
+    #[arg(short, long, required = false)]
+    branch: Option<String>,
+
+    #[arg(short, long, required = false)]
+    commit: Option<String>,
+}
+
+impl ShowData {
+    async fn run(&self, config: &Config) -> i16 {
+        let root_logbook = Logbook::local(&config.local_db()).await;
+        let data = root_logbook.files_tracked().await;
+        self.paging(data.join("\n").as_bytes()).await;
+        0
+    }
+
+    async fn paging(&self, data: &[u8]){
+        let mut child = Command::new("less").stdin(Stdio::piped()).spawn().unwrap();
+
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(data).await.unwrap();
+        }
+        child.wait().await.unwrap();
     }
 }

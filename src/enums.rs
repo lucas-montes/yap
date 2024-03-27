@@ -8,6 +8,7 @@ pub enum Events {
     Commit,
     Pull,
     Push,
+    Remove,
 }
 
 impl fmt::Display for Events {

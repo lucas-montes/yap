@@ -42,7 +42,7 @@ impl RemoteConfig {
         get_env(&self.password)
     }
 
-    fn get_storage_operator(&self) -> Operator {
+    pub fn get_storage_operator(&self) -> Operator {
         match self.storage {
             Storage::Gcs => self.create_gcs(),
             Storage::Koofr => self.create_koofr(),

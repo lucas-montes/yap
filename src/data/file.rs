@@ -1,3 +1,4 @@
+use futures::stream::StreamExt;
 use libsql::{params, Builder, Connection, Database};
 use std::{
     collections::VecDeque,
@@ -93,6 +94,19 @@ impl Logbook {
             .await
             .expect("error erting the newly tracked file");
     }
+
+    pub async fn files_tracked(&self) -> Vec<String> {
+        self.db
+            .connect()
+            .unwrap()
+            .query("SELECT path FROM files", ())
+            .await
+            .unwrap()
+            .into_stream()
+            .map(|f| f.unwrap().get::<String>(0).unwrap())
+            .collect()
+            .await
+    }
 }
 
 //  TODO: pass more things as ref
@@ -147,7 +161,7 @@ impl FileFacadeFactory {
         self
     }
 
-    async fn to_facade(&self, path: &Path) -> FileFacade {
+    fn to_facade(&self, path: &Path) -> FileFacade {
         let file = File::new(
             path,
             &self.branch,
@@ -155,7 +169,7 @@ impl FileFacadeFactory {
             self.timestamp,
             self.author.clone(),
         );
-        let logbook = FileLogbook::new(path, &self.logbooks_dir).await;
+        let logbook = FileLogbook::new(path, &self.logbooks_dir);
         let facade = FileFacade::new(file).set_logbook(logbook);
         match (self.comparaison.is_some(), self.remote.is_some()) {
             // We are pushing so we need the remote info
@@ -169,17 +183,37 @@ impl FileFacadeFactory {
         }
     }
 
-    pub async fn next(&mut self) -> Option<FileFacade> {
+    pub async fn anext(&mut self) -> Option<FileFacade> {
         if let Some(p) = self.stack.pop_front() {
+            if p.is_dir() {
+                while let Some(f) = tokio::fs::read_dir(&p)
+                    .await
+                    .unwrap()
+                    .next_entry()
+                    .await
+                    .unwrap()
+                {
+                    self.stack.push_back(f.path());
+                }
+            }
+            Some(self.to_facade(&p))
+        } else {
+            None
+        }
+    }
+}
+
+impl Iterator for FileFacadeFactory {
+    type Item = FileFacade;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.stack.pop_front().and_then(|p| {
             if p.is_dir() {
                 p.read_dir()
                     .unwrap()
                     .for_each(|p| self.stack.push_back(p.unwrap().path()));
             }
-            Some(self.to_facade(&p).await)
-        } else {
-            None
-        }
+            Some(self.to_facade(&p))
+        })
     }
 }
 
@@ -283,18 +317,27 @@ pub struct FileLogbook {
     //TODO: maybe instead of multiple connections we could create only one and save everything in
     //batches
     db: Option<Database>,
+    path: PathBuf,
 }
 
 impl FileLogbook {
-    pub async fn new(file_path: &Path, logbooks_dir: &Path) -> Self {
+    pub fn new(file_path: &Path, logbooks_dir: &Path) -> Self {
         //TODO: will path always be relative?
         let mut db_path = file_path.to_str().unwrap().to_string();
         db_path.push_str(".db");
-        let final_path = logbooks_dir.join(db_path);
-        fs::create_dir_all(final_path.parent().expect("no parent for local db"))
+        Self {
+            db: None,
+            path: logbooks_dir.join(db_path),
+        }
+    }
+
+    pub async fn init(&mut self) -> &Self {
+        //TODO: i have to call this in add i think
+        tokio::fs::create_dir_all(self.path.parent().expect("no parent for local db"))
+            .await
             .expect("unable to craete path to local db");
         let db = Builder::new_local(
-            final_path
+            self.path
                 .to_str()
                 .expect("unable to conver to str")
                 .to_string(),
@@ -302,7 +345,8 @@ impl FileLogbook {
         .build()
         .await
         .expect("unable to open local db");
-        Self { db: Some(db) }
+        self.db = Some(db);
+        self
     }
 
     pub async fn create(&self) -> &Self {
@@ -363,12 +407,15 @@ impl FileFacade {
         }
     }
 
-    pub fn file(&self) -> File {
-        self.file.clone()
+    pub async fn remove(&self) -> &Self {
+        let remote = self.remote();
+        let operator = remote.get_storage_operator();
+        operator.delete(self.path().to_str().unwrap()).await.unwrap();
+        self
     }
 
-    pub fn history_path(&self) -> PathBuf {
-        self.file.history_path()
+    pub fn file(&self) -> File {
+        self.file.clone()
     }
 
     pub fn branch(&self) -> &str {
