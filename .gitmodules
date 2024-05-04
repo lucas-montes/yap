@@ -1,0 +1,6 @@
+[submodule "turso-client"]
+	path = turso-client
+	url = git@github.com:lucas-montes/turso-client.git
+[submodule "yap.nvim"]
+	path = yap.nvim
+	url = git@github.com:lucas-montes/yap.nvim.git

@@ -1,0 +1,50 @@
+name: Cargo Lint, Build & Test
+
+on:
+  push:
+
+env: 
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: Linting
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features: [full, repro, notes]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Rust clippy
+        run: cargo clippy --features ${{ matrix.features }} -- -Dclippy::all -D warnings
+
+      - name: Rust fmt
+        run: cargo fmt --all -- --check
+
+  test:
+    name: Test
+    needs: lint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features: [full, repro, notes]
+        toolchain:
+          - stable
+          - beta
+          - nightly
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
+      - run: cargo test --verbose --features ${{ matrix.features }}
+  

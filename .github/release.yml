@@ -1,0 +1,21 @@
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+    authors:
+      - lucas-montes
+  categories:
+    - title: Breaking Changes 🛠
+      labels:
+        - Semver-Major
+        - breaking-change
+    - title: Exciting New Features 🎉
+      labels:
+        - Semver-Minor
+        - enhancement
+    - title: We have fixed 🛠
+      labels:
+        - Semver-Patch
+    - title: Other Changes
+      labels:
+        - "*"

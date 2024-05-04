@@ -1,0 +1,108 @@
+[package]
+name = "yap"
+version = "0.0.0"
+edition = "2021"
+description = "A generic version control"
+license = "MIT"
+repository = "https://github.com/lucas-montes/yap"
+authors = ["Lucas Montes <lluc23@hotmail.com>"]
+documentation = "https://docs.rs/yap/"
+categories = ["command-line-interface", "version-control-system"]
+keywords = ["vcs", "cli"]
+readme = "README.md"
+
+[badges]
+maintenance = { status = "actively-developed" }
+
+[features]
+knowbase = ["dep:unidecode", "dep:regex", "dep:rayon", "dep:pulldown-cmark"]
+todo = ["dep:notify-rust"]
+vcs = ["dep:meowhash", "dep:zstd", "dep:hex", "dep:git2"]
+repro = ["dep:shlex", "dep:serde_yaml", "vcs"]
+server = ["dep:pulldown-cmark"]
+documentation = ["dep:git2", "server", "dep:mdbook"]
+lsp = []
+notes = ["server", "knowbase", "vcs", "documentation"]
+full = ["vcs", "repro", "documentation", "knowbase", "todo", "lsp", "server"]
+default = ["full"]
+
+[workspace]
+members = ["lsp", "turso-client"]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[package.metadata.deb.variants.full]
+features = ["full"]
+default-features = false
+
+[package.metadata.deb.variants.notes]
+features = ["notes"]
+name = "yap-notes"
+default-features = false
+
+[package.metadata.deb.variants.repro]
+features = ["repro"]
+name = "yap-repro"
+default-features = false
+
+[workspace.dependencies]
+serde = { version = "1.0.196", features = ["derive"] }
+serde_json = "1.0.114"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+
+[dependencies]
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono = "0.4.37"
+clap_complete = { version = "4.3.1" }
+clap = { version = "4.5.0", features = ["derive","cargo","default", "env"] }
+menva = "1.0.0"
+async-trait = "0.1.74"
+tokio = { version = "1.36.0", features = ["full"] }
+futures = "0.3.30"
+turso = "0.1.0"
+libsql = "0.3.1"
+serde_yaml = { version = "0.9.32", optional = true }
+shlex = { version = "1.3.0", optional = true }
+unidecode = { version = "0.3.0", optional = true }
+regex = { version = "1.10.2", optional = true }
+rayon = { version = "1.8.1", optional = true }
+pulldown-cmark = { version = "0.10.0", optional = true }
+aromatic = "0.1.1"
+opendal = { version = "0.45.0", features = ["services-gcs", "rustls", "services-dropbox", "services-koofr", "services-pcloud"] }
+toml = "0.8.10"
+meowhash = { version = "0.3.0", optional = true}
+zstd = { version = "0.13.0", optional = true}
+hex = { version = "0.4.3", optional = true}
+notify-rust = { version = "4.5.0", optional = true }
+git2 = { version = "0.18.3", optional = true}
+axum = { version = "0.7.5", features = ["ws"] }
+tokio-tungstenite = "0.21.0"
+futures-util = { version = "0.3.30", features = ["sink", "std"] }
+axum-extra = { version = "0.9.3", features = ["typed-header"] }
+tower-http = { version = "0.5.2", features = ["fs", "trace"] }
+urlencoding = "2.1.3"
+indicatif = { version = "0.17.8", features = ["tokio"] }
+tokio-stream = "0.1.15"
+tokio-util = { version = "0.7.10", features = ["io"] }
+mdbook = { version = "0.4.37", optional = true}
+
+[dev-dependencies]
+criterion = { version = "0.5.1", features = ["html_reports", "async_futures", "async_tokio", "plotters"] }
+pprof = { version = "0.13.0", features = ["flamegraph", "criterion"] }
+
+[[bench]]
+name = "bench_main"
+harness = false
+required-features = ["full"]
+

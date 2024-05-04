@@ -1,0 +1,22 @@
+CREATE TABLE
+  IF NOT EXISTS files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file TEXT NOT NULL UNIQUE
+  );
+
+CREATE TABLE
+  IF NOT EXISTS words (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    word TEXT NOT NULL UNIQUE
+  );
+
+CREATE TABLE
+  IF NOT EXISTS file_word_relations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    word_count INTEGER NOT NULL,
+    word_id INTEGER NOT NULL,
+    file_id INTEGER NOT NULL,
+    FOREIGN KEY (word_id) REFERENCES words (id),
+    FOREIGN KEY (file_id) REFERENCES files (id),
+    UNIQUE (word_id, file_id)
+  );
