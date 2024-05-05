@@ -1,8 +1,10 @@
+use std::path::PathBuf;
+
 use crate::config::Author;
 
 use super::{
     comparaison::Diff,
-    file::{File, LogbookProvider},
+    file::LogbookProvider,
 };
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
@@ -13,8 +15,8 @@ pub struct Commit {
     author: Author,
     branch: String,
     diff: Option<Diff>,
-    file_from: File,
-    file_to: File,
+    file_from_path: PathBuf,
+    file_to_path: PathBuf,
     git_commit: String,
     message: String,
 }
@@ -22,8 +24,8 @@ pub struct Commit {
 impl Commit {
     pub fn new(
         branch: String,
-        file_from: File,
-        file_to: File,
+        file_from_path: PathBuf,
+        file_to_path: PathBuf,
         message: String,
         author: Author,
     ) -> Self {
@@ -32,8 +34,8 @@ impl Commit {
             diff: None,
             author,
             branch,
-            file_to,
-            file_from,
+            file_from_path,
+            file_to_path,
             message,
             git_commit: String::new(),
         }
@@ -66,8 +68,8 @@ impl LogbookProvider for Commit {
         vec![
             self.git_commit.clone(),
             self.message.clone(),
-            self.file_from.history_path().to_str().unwrap().to_string(),
-            self.file_to.history_path().to_str().unwrap().to_string(),
+            self.file_from_path.to_str().unwrap().to_string(),
+            self.file_to_path.to_str().unwrap().to_string(),
             self.diff_pk(),
             self.branch.clone(),
             self.author.pk(), //TODO: fix all the structs that should be the ids

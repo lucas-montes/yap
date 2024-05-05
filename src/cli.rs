@@ -9,7 +9,7 @@ use crate::todo::utils::cli::ToDoCli;
 #[cfg(feature = "vcs")]
 use crate::vcs::VcsArgs;
 
-use crate::config::ConfigArgs;
+use crate::{config::ConfigArgs, enums::ColorWhen};
 
 use clap::Parser;
 use menva::read_env_file;
@@ -23,6 +23,17 @@ pub struct Cli {
 
     #[command(subcommand)]
     command: Commands,
+
+    #[arg(
+        long,
+        require_equals = true,
+        value_name = "WHEN",
+        num_args = 0..=1,
+        default_value_t = ColorWhen::Auto,
+        default_missing_value = "always",
+        value_enum
+    )]
+    color: ColorWhen,
 }
 
 impl Cli {

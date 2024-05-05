@@ -17,8 +17,9 @@ mod enums;
 mod utils;
 use cli::Cli;
 
-#[tokio::main]
-async fn main() -> Result<(), i16> {
-    Cli::handle().await;
-    Ok(())
+fn main() -> Result<(), i16> {
+    tokio_uring::start(async {
+        Cli::handle().await;
+        Ok(())
+    })
 }

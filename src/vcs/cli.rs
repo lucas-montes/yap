@@ -33,8 +33,12 @@ impl fmt::Display for Events {
 #[derive(Debug, Args)]
 #[command(args_conflicts_with_subcommands = true)]
 pub struct VcsArgs {
+    #[arg(short, long, default_value_t = true)]
+    verbose: bool,
+
     #[command(subcommand)]
     pub command: VcsCommands,
+    
     #[arg(
         long,
         require_equals = true,
@@ -178,7 +182,8 @@ impl Vcs for Commit {
         .set_comparaison(&self.comparaison, &self.script)
     }
     async fn handle_file_facade(&self, file: FileFacade, root_logbook: &Logbook) {
-        if file.compare(&self.message).await.has_changed() {
+        let file = file.compare(&self.message).await;
+        if file.has_changed() {
             //TODO: save the comparaison results
             root_logbook.save_event(&file, &Events::Commit).await;
         }

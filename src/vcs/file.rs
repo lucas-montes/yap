@@ -11,6 +11,7 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
+use tokio::io::AsyncWriteExt;
 
 use super::{
     cli::Events,
@@ -385,6 +386,26 @@ pub trait LogbookProvider {
     async fn params(&self) -> Vec<String>;
 }
 
+fn progress_spinner_style() -> ProgressStyle {
+    ProgressStyle::with_template("{spinner:.blue} {msg}")
+        .unwrap()
+        .tick_strings(&[
+            "▹▹▹▹▹",
+            "▸▹▹▹▹",
+            "▹▸▹▹▹",
+            "▹▹▸▹▹",
+            "▹▹▹▸▹",
+            "▹▹▹▹▸",
+            "▪▪▪▪▪",
+        ])
+}
+fn progress_bar_style() -> ProgressStyle {
+    ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:40.cyan/blue} {bytes:>7}/{total_bytes:7} [{bytes_per_sec}] {msg}\n")
+            .unwrap()
+            .progress_chars("->#")
+}
+
 #[derive(Debug)]
 pub struct FileFacade {
     changed: bool,
@@ -413,12 +434,7 @@ impl FileFacade {
     }
 
     pub fn set_progress_bar(mut self, progress_bar: ProgressBar) -> Self {
-        progress_bar.set_style(
-        ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {bar:40.cyan/blue} {bytes:>7}/{total_bytes:7} [{bytes_per_sec}] {msg}\n")
-            .unwrap()
-            .progress_chars("->#"),
-    );
+        progress_bar.set_style(progress_bar_style());
         self.progress_bar = Some(progress_bar);
         self
     }
@@ -475,19 +491,7 @@ impl FileFacade {
                 progress_bar.set_length(original.metadata().unwrap().size());
                 self.duplicate(&original, &duplicata).await;
                 progress_bar.enable_steady_tick(Duration::from_millis(120));
-                progress_bar.set_style(
-                    ProgressStyle::with_template("{spinner:.blue} {msg}")
-                        .unwrap()
-                        .tick_strings(&[
-                            "▹▹▹▹▹",
-                            "▸▹▹▹▹",
-                            "▹▸▹▹▹",
-                            "▹▹▸▹▹",
-                            "▹▹▹▸▹",
-                            "▹▹▹▹▸",
-                            "▪▪▪▪▪",
-                        ]),
-                );
+                progress_bar.set_style(progress_spinner_style());
                 progress_bar.set_message("Creating the logbook");
                 self.logbook.create().await;
                 progress_bar.set_message("Saving the movement");
@@ -512,24 +516,70 @@ impl FileFacade {
         //TODO: if commiting we see that the file hasn't changed we may want to
         //use a symlink
         let previous = self.previous_version();
-        let diff = self.comparaison().compare(self, &previous).result();
-        self.logbook.insert(&diff).await;
-
         let original = self.file.original_path();
         let duplicata = self.file.history_path();
-        self.duplicate(&original, &duplicata).await;
+        let previous_file = previous.file();
+        let mut comp = self.comparaison();
+        let current_file = self.file();
 
-        let git_commit = get_latest_git_commit().await;
-        let commit = Commit::new(
-            self.file.branch.clone(),
-            self.file.clone(),
-            previous.file,
-            msg.to_owned(),
-            self.file.author.clone(),
-        )
-        .set_diff(&diff)
-        .set_git_commit(git_commit);
-        self.logbook.insert(&commit).await;
+        match self.progress_bar.clone() {
+            Some(progress_bar) => {
+                progress_bar.enable_steady_tick(Duration::from_millis(120));
+                progress_bar.set_style(progress_spinner_style());
+                progress_bar
+                    .set_message(format!("Comparing versions for {:?}", &original));
+
+                let diff = tokio::task::spawn_blocking(move || {
+                    comp.compare(&current_file, &previous_file)
+                })
+                .await
+                .unwrap();
+
+                progress_bar.set_style(progress_bar_style());
+                progress_bar.set_message(format!(
+                    "Copying {:?} into {:?}",
+                    &original, &duplicata
+                ));
+                progress_bar.set_length(original.metadata().unwrap().size());
+                self.duplicate(&original, &duplicata).await;
+
+                progress_bar.enable_steady_tick(Duration::from_millis(120));
+                progress_bar.set_style(progress_spinner_style());
+                progress_bar.set_message("Saving the result with the differences");
+                self.logbook.insert(&diff).await;
+                let git_commit = get_latest_git_commit().await;
+                progress_bar.set_message("Saving commit into the logbook");
+                let commit = Commit::new(
+                    self.file.branch.to_owned(),
+                    self.file.original_path(),
+                    previous.file.original_path(),
+                    msg.to_owned(),
+                    self.file.author.to_owned(),
+                )
+                .set_diff(&diff)
+                .set_git_commit(git_commit);
+                self.logbook.insert(&commit).await;
+                progress_bar.set_style(ProgressStyle::with_template("{msg}").unwrap());
+                progress_bar.finish_with_message(format!("{:?} commited ✅", &original));
+            },
+            None => {
+                let diff = self.comparaison().compare(&self.file(), &previous.file());
+                self.duplicate(&original, &duplicata).await;
+
+                self.logbook.insert(&diff).await;
+                let git_commit = get_latest_git_commit().await;
+                let commit = Commit::new(
+                    self.file.branch.clone(),
+                    self.file.original_path(),
+                    previous.file.original_path(),
+                    msg.to_owned(),
+                    self.file.author.clone(),
+                )
+                .set_diff(&diff)
+                .set_git_commit(git_commit);
+                self.logbook.insert(&commit).await;
+            },
+        };
         self
     }
 
@@ -603,20 +653,40 @@ impl FileFacade {
         )
         .await
         .expect("Couldn't create dirs");
-        let mut origin_file = tokio::fs::File::open(&original).await.unwrap();
-        let duplicated_file = tokio::fs::File::create(&duplicata).await.unwrap();
-        match tokio::io::copy(
-            &mut origin_file,
-            &mut self
-                .progress_bar
-                .as_ref()
-                .unwrap()
-                .wrap_async_write(duplicated_file),
-        )
-        .await
-        {
-            Ok(_) => self,
-            Err(err) => panic!("{}: {:?}", err, &original),
+        let origin_file = tokio_uring::fs::File::open(&original).await.unwrap();
+        let mut duplicated_file = tokio::fs::File::create(&duplicata).await.unwrap();
+        let mut buf = vec![0; 16 * 1_024];
+
+        // Track the current position in the file;
+        let mut pos = 0;
+
+        loop {
+            // Read a chunk
+            let (res, b) = origin_file.read_at(buf, pos).await;
+            let n = res.unwrap();
+
+            if n == 0 {
+                break;
+            }
+
+            duplicated_file.write_all(&b[..n]).await.unwrap();
+            pos += n as u64;
+            self.progress_bar.as_ref().unwrap().inc(n as u64);
+            buf = b;
         }
+        self
+        //match tokio::io::copy(
+        //    &mut origin_file,
+        //    &mut self
+        //        .progress_bar
+        //        .as_ref()
+        //        .unwrap()
+        //        .wrap_async_write(duplicated_file),
+        //)
+        //.await
+        //{
+        //    Ok(_) => self,
+        //    Err(err) => panic!("{}: {:?}", err, &original),
+        //}
     }
 }

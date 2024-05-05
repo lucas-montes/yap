@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 
 use crate::config::Author;
 
-use super::file::{File, FileFacade, LogbookProvider};
+use super::file::{File, LogbookProvider};
 
 #[derive(ValueEnum, Default, Debug, Clone, Deserialize, PartialEq, Serialize)]
 pub enum ComparaisonTechnique {
@@ -35,19 +35,19 @@ pub struct Diff {
     result_path: PathBuf,
     script: Option<PathBuf>,
     result: Value,
-    file_from: File,
-    file_to: File,
+    file_from_path: PathBuf,
+    file_to_path: PathBuf,
     branch: String,
     author: Author,
     technique: ComparaisonTechnique,
 }
 
 impl Diff {
-    pub fn new(script: Option<PathBuf>, file_from: File, file_to: File) -> Self {
+    pub fn new(script: Option<PathBuf>, file_from_path: PathBuf, file_to_path: PathBuf) -> Self {
         Self {
             script,
-            file_from,
-            file_to,
+            file_from_path,
+            file_to_path,
             ..Self::default()
         }
     }
@@ -98,8 +98,8 @@ impl LogbookProvider for Diff {
             self.script(),
             self.result.to_string(),
             self.technique.to_string(),
-            self.file_from.original_path().to_str().unwrap().to_string(),
-            self.file_to.original_path().to_str().unwrap().to_string(),
+            self.file_from_path.to_str().unwrap().to_string(),
+            self.file_to_path.to_str().unwrap().to_string(),
             self.author.to_string(),
             self.branch.clone(),
         ]
@@ -112,8 +112,6 @@ pub struct Comparaison {
     technique: ComparaisonTechnique,
     #[serde(default)]
     path: Option<PathBuf>,
-    #[serde(default)]
-    result: Option<Diff>,
 }
 
 impl Comparaison {
@@ -121,15 +119,10 @@ impl Comparaison {
         Self {
             technique: technique.to_owned(),
             path: path.to_owned(),
-            result: None,
         }
     }
 
-    pub fn result(&self) -> Diff {
-        self.result.as_ref().unwrap().clone()
-    }
-
-    pub fn compare(&mut self, current: &FileFacade, previous: &FileFacade) -> &Self {
+    pub fn compare(&mut self, current: &File, previous: &File) -> Diff {
         let diff_result = match self.technique {
             ComparaisonTechnique::Hash => self.compare_hash(current, previous),
             ComparaisonTechnique::Custom => self.compare_custom(
@@ -142,13 +135,11 @@ impl Comparaison {
             ComparaisonTechnique::Similarity => self.compare_similarity(current, previous),
             ComparaisonTechnique::Smart => self.compare_smart(current, previous),
         };
-        let result = Diff::new(self.path.clone(), previous.file(), current.file())
-            .set_result(diff_result);
-        self.result = Some(result);
-        self
+        Diff::new(self.path.clone(), previous.original_path(), current.original_path())
+            .set_result(diff_result)
     }
 
-    pub fn compare_smart(&self, current: &FileFacade, previous: &FileFacade) -> Value {
+    pub fn compare_smart(&self, current: &File, previous: &File) -> Value {
         let mut first = self.compare_hash(current, previous);
         let second = match current
             .original_path()
@@ -166,8 +157,8 @@ impl Comparaison {
 
     pub fn compare_similarity(
         &self,
-        current: &FileFacade,
-        previous: &FileFacade,
+        current: &File,
+        previous: &File,
     ) -> Value {
         //TODO: rm this awesome trick
         self.compare_hash(current, previous)
@@ -176,13 +167,13 @@ impl Comparaison {
     //only files and the one to call the custom script
     pub fn compare_custom(
         &self,
-        _current: &FileFacade,
-        _previous: &FileFacade,
+        _current: &File,
+        _previous: &File,
         _script: &Path,
     ) -> Value {
         todo!()
     }
-    pub fn compare_hash(&self, current: &FileFacade, previous: &FileFacade) -> Value {
+    pub fn compare_hash(&self, current: &File, previous: &File) -> Value {
         let current_file =
             fs::read(current.original_path()).expect("cannot open orinigal file");
         let current = MeowHasher::hash(&current_file);
