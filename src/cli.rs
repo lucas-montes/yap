@@ -15,17 +15,22 @@ use clap::Parser;
 use menva::read_env_file;
 
 #[derive(Debug, Parser)]
-#[command(name = "Yap", version = "0.0.1")]
+#[command(name = "Yap", version = "0.0.0")]
 #[command(about = "Manage your data and documentation")]
 pub struct Cli {
+    #[arg(short, long, required = false)]
+    env: Option<String>,
+
     #[command(subcommand)]
     command: Commands,
 }
 
 impl Cli {
     pub async fn handle() -> i16 {
-        read_env_file(".env");
         let cli = Cli::parse();
+        if let Some(env) = cli.env.as_ref() {
+            read_env_file(env);
+        }
         match cli.command {
             Commands::Config(args) => args.command.handle_commands().await,
             #[cfg(feature = "vcs")]

@@ -16,7 +16,7 @@ pub fn toml_to_struct<T: for<'a> Deserialize<'a>>(path: &str) -> T {
         .read(true)
         .write(true)
         .create(true)
-        .truncate(true)
+        .truncate(false)
         .open(path)
     {
         Ok(value) => value,

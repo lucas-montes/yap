@@ -74,7 +74,7 @@ pub enum VcsCommands {
 
 impl VcsCommands {
     pub async fn handle_commands(&self) -> i16 {
-        let config = Config::new();
+        let config = Config::new().check_is_valid();
         match self {
             VcsCommands::Add(args) => args.run(&config).await,
             VcsCommands::Commit(args) => args.run(&config).await,
@@ -296,6 +296,7 @@ pub struct Show {
 
 impl Show {
     async fn run(&self, config: &Config) -> i16 {
+        println!("{:?}", config);
         let root_logbook = Logbook::local(&config.local_db()).await;
         let data = root_logbook.files_tracked().await;
         self.paging(data.join("\n").as_bytes()).await;

@@ -24,7 +24,7 @@ documentation = ["dep:git2", "server", "dep:mdbook"]
 lsp = []
 notes = ["server", "knowbase", "vcs", "documentation"]
 full = ["vcs", "repro", "documentation", "knowbase", "todo", "lsp", "server"]
-default = ["full"]
+default = ["vcs"]
 
 [workspace]
 members = ["lsp", "turso-client"]

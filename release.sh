@@ -20,11 +20,12 @@ update_version() {
     fi
 
     sed -i "s/^version = \".*\"$/version = \"$version\"/" Cargo.toml
+    sed -i "s/version = \".*\"/version = \"$version\"/" src/cli.rs
     echo "Let's go $version"
 }
 
 if [ $# -lt 1 ]; then
-    echo "Usage: $0 vX.X.X"
+    echo "Usage: $0 'Commit message'  'vX.X.X'"
     exit 1
 fi
 
@@ -33,8 +34,8 @@ cargo clippy --features default -- -Dclippy::all -D warnings
 
 update_version "$new_version"
 
-git add --all
-git commit --all --signoff --message "$msg"
-git tag -a "$version" -m "Version $version"
-git push origin "$version"
+#git add --all
+#git commit --all --signoff --message "$msg"
+#git tag -a "$version" -m "Version $version"
+#git push origin "$version"
 

@@ -1,4 +1,3 @@
-use core::panic;
 use std::{
     fmt,
     path::{Path, PathBuf},
@@ -210,6 +209,14 @@ pub struct Config {
 
 //TODO: make this file smaller so more settings are saved in the databse
 impl Config {
+    pub fn check_is_valid(self)-> Self{
+        if self.local_db.is_empty(){
+            println!("Your configuration seems incomplete. You might need to run 'yap config init'.");
+            std::process::exit(1)
+        }
+        self
+    }
+
     async fn init() {
         let mut file_config = Config::new();
 
