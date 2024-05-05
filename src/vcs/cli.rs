@@ -96,7 +96,7 @@ async fn get_git_branch() -> String {
     {
         Ok(v) => String::from_utf8(v.stdout).unwrap().trim().to_owned(),
         Err(err) => {
-            println!("{}", err);
+            eprintln!("{}", err);
             "master".to_string()
         },
     }
@@ -296,7 +296,6 @@ pub struct Show {
 
 impl Show {
     async fn run(&self, config: &Config) -> i16 {
-        println!("{:?}", config);
         let root_logbook = Logbook::local(&config.local_db()).await;
         let data = root_logbook.files_tracked().await;
         self.paging(data.join("\n").as_bytes()).await;

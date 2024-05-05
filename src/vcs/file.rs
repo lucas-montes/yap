@@ -1,6 +1,6 @@
 use crate::config::{Author, Config, PushStrategy, RemoteConfig, Storage};
 use futures::stream::StreamExt;
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use libsql::{params, Builder, Connection, Database};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -9,6 +9,7 @@ use std::{
     fmt::Debug,
     os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use super::{
@@ -120,6 +121,7 @@ pub struct FileFacadeFactory {
     comparaison: Option<Comparaison>,
     message: Option<String>,
     stack: VecDeque<PathBuf>,
+    multi_progress_bar: MultiProgress,
 }
 
 impl FileFacadeFactory {
@@ -131,6 +133,7 @@ impl FileFacadeFactory {
             author: config.author(),
             timestamp: chrono::offset::Local::now().timestamp(),
             stack: VecDeque::from(paths),
+            multi_progress_bar: MultiProgress::new(),
             ..Self::default()
         }
     }
@@ -175,7 +178,10 @@ impl FileFacadeFactory {
             self.author.clone(),
         );
         let logbook = FileLogbook::new(path, &self.logbooks_dir);
-        let facade = FileFacade::new(file).set_logbook(logbook);
+        let progress_bar = self.multi_progress_bar.add(ProgressBar::new(0));
+        let facade = FileFacade::new(file)
+            .set_logbook(logbook)
+            .set_progress_bar(progress_bar);
         match (self.comparaison.is_some(), self.remote.is_some()) {
             // We are pushing so we need the remote info
             (false, true) => facade.set_remote(self.remote.as_ref().unwrap()),
@@ -406,15 +412,14 @@ impl FileFacade {
         self
     }
 
-    fn set_progress_bar(&mut self, len: u64, msg: &str) -> &Self {
-        let progress = ProgressBar::new(len).with_message(format!("{msg} {:?}", self));
-        progress.set_style(
+    pub fn set_progress_bar(mut self, progress_bar: ProgressBar) -> Self {
+        progress_bar.set_style(
         ProgressStyle::default_bar()
             .template("[{elapsed_precise}] {bar:40.cyan/blue} {bytes:>7}/{total_bytes:7} [{bytes_per_sec}] {msg}\n")
             .unwrap()
             .progress_chars("->#"),
     );
-        self.progress_bar = Some(progress);
+        self.progress_bar = Some(progress_bar);
         self
     }
 
@@ -457,14 +462,45 @@ impl FileFacade {
         self.comparaison.as_ref().unwrap().clone()
     }
 
-    pub async fn add(mut self) -> Self {
+    pub async fn add(self) -> Self {
         let original = self.file.original_path();
         let duplicata = self.file.history_path();
-        self.set_progress_bar(original.metadata().unwrap().size(), "Copying");
-        self.duplicate(&original, &duplicata).await;
-        self.logbook.create().await;
-        self.logbook.insert(&self.file).await;
-        self.progress_bar.as_ref().unwrap().finish();
+
+        match self.progress_bar.clone() {
+            Some(progress_bar) => {
+                progress_bar.set_message(format!(
+                    "Copying {:?} into {:?}",
+                    &original, &duplicata
+                ));
+                progress_bar.set_length(original.metadata().unwrap().size());
+                self.duplicate(&original, &duplicata).await;
+                progress_bar.enable_steady_tick(Duration::from_millis(120));
+                progress_bar.set_style(
+                    ProgressStyle::with_template("{spinner:.blue} {msg}")
+                        .unwrap()
+                        .tick_strings(&[
+                            "▹▹▹▹▹",
+                            "▸▹▹▹▹",
+                            "▹▸▹▹▹",
+                            "▹▹▸▹▹",
+                            "▹▹▹▸▹",
+                            "▹▹▹▹▸",
+                            "▪▪▪▪▪",
+                        ]),
+                );
+                progress_bar.set_message("Creating the logbook");
+                self.logbook.create().await;
+                progress_bar.set_message("Saving the movement");
+                self.logbook.insert(&self.file).await;
+                progress_bar.set_style(ProgressStyle::with_template("{msg}").unwrap());
+                progress_bar.finish_with_message(format!("{:?} saved ✅", &original));
+            },
+            None => {
+                self.duplicate(&original, &duplicata).await;
+                self.logbook.create().await;
+                self.logbook.insert(&self.file).await;
+            },
+        };
         self
     }
 

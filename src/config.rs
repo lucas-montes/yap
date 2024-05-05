@@ -211,7 +211,7 @@ pub struct Config {
 impl Config {
     pub fn check_is_valid(self)-> Self{
         if self.local_db.is_empty(){
-            println!("Your configuration seems incomplete. You might need to run 'yap config init'.");
+            eprintln!("Your configuration seems incomplete. You might need to run 'yap config init'.");
             std::process::exit(1)
         }
         self
