@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::{
     cli::Events,
@@ -653,40 +653,26 @@ impl FileFacade {
         )
         .await
         .expect("Couldn't create dirs");
-        let origin_file = tokio_uring::fs::File::open(&original).await.unwrap();
-        let mut duplicated_file = tokio::fs::File::create(&duplicata).await.unwrap();
-        let mut buf = vec![0; 16 * 1_024];
+        let progress_bar = self.progress_bar.as_ref().unwrap();
 
-        // Track the current position in the file;
-        let mut pos = 0;
+        let mut origin_file = tokio::fs::File::open(&original).await.unwrap();
+        let mut duplicated_file = tokio::fs::File::create(&duplicata).await.unwrap();
+        let mut buffer = vec![0; 32 * 1_024];
 
         loop {
-            // Read a chunk
-            let (res, b) = origin_file.read_at(buf, pos).await;
-            let n = res.unwrap();
-
-            if n == 0 {
+            let bytes_read = match origin_file.read(&mut buffer).await {
+                Ok(n) => n,
+                Err(e) => {
+                    eprintln!("Error reading from file: {}", e);
+                    break;
+                },
+            };
+            if bytes_read == 0 {
                 break;
             }
-
-            duplicated_file.write_all(&b[..n]).await.unwrap();
-            pos += n as u64;
-            self.progress_bar.as_ref().unwrap().inc(n as u64);
-            buf = b;
+            let bytes_wrote = duplicated_file.write(&buffer[..bytes_read]).await.unwrap();
+            progress_bar.inc(bytes_wrote as u64);
         }
         self
-        //match tokio::io::copy(
-        //    &mut origin_file,
-        //    &mut self
-        //        .progress_bar
-        //        .as_ref()
-        //        .unwrap()
-        //        .wrap_async_write(duplicated_file),
-        //)
-        //.await
-        //{
-        //    Ok(_) => self,
-        //    Err(err) => panic!("{}: {:?}", err, &original),
-        //}
     }
 }
