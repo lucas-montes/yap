@@ -1,5 +1,7 @@
 use crate::config::{Author, Config, PushStrategy, RemoteConfig, Storage};
-use futures::stream::StreamExt;
+use futures::io::AsyncWriteExt;
+use futures::{stream::StreamExt, AsyncReadExt};
+
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use libsql::{params, Builder, Connection, Database};
 use serde::{Deserialize, Serialize};
@@ -11,7 +13,6 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::{
     cli::Events,
@@ -654,11 +655,22 @@ impl FileFacade {
         .await
         .expect("Couldn't create dirs");
         let progress_bar = self.progress_bar.as_ref().unwrap();
+        let buffer_size = 32 * 1_024;
+        let mut buffer = vec![0; buffer_size];
 
-        let mut origin_file = tokio::fs::File::open(&original).await.unwrap();
-        let mut duplicated_file = tokio::fs::File::create(&duplicata).await.unwrap();
-        let mut buffer = vec![0; 32 * 1_024];
+        let dma_original_file = glommio::io::DmaFile::open(original).await.unwrap();
+        let dma_duplicata_file = glommio::io::DmaFile::create(duplicata).await.unwrap();
 
+        let mut origin_file = glommio::io::DmaStreamReaderBuilder::new(dma_original_file)
+            .with_buffer_size(buffer_size)
+            .build();
+        let mut duplicated_file =
+            glommio::io::DmaStreamWriterBuilder::new(dma_duplicata_file)
+                .with_buffer_size(buffer_size)
+                .build();
+        // let mut origin_file = tokio::fs::File::open(&original).await.unwrap();
+        // let mut duplicated_file = tokio::fs::File::create(&duplicata).await.unwrap();
+        //
         loop {
             let bytes_read = match origin_file.read(&mut buffer).await {
                 Ok(n) => n,
@@ -670,8 +682,11 @@ impl FileFacade {
             if bytes_read == 0 {
                 break;
             }
-            let bytes_wrote = duplicated_file.write(&buffer[..bytes_read]).await.unwrap();
-            progress_bar.inc(bytes_wrote as u64);
+            duplicated_file
+                .write_all(&buffer[..bytes_read])
+                .await
+                .unwrap();
+            progress_bar.inc(bytes_read as u64);
         }
         self
     }

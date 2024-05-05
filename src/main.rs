@@ -16,10 +16,20 @@ mod config;
 mod enums;
 mod utils;
 use cli::Cli;
+use glommio::LocalExecutor;
 
 fn main() -> Result<(), i16> {
-    tokio_uring::start(async {
+    let local_ex = LocalExecutor::default();
+    local_ex.run(async {
         Cli::handle().await;
-        Ok(())
-    })
+    });
+
+    // LocalExecutorBuilder::new(Placement::Fixed(0))
+    //     .spawn(|| async move {
+    //         Cli::handle().await;
+    //     })
+    //     .unwrap()
+    //     .join()
+    //     .unwrap();
+    Ok(())
 }
