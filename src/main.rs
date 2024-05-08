@@ -16,20 +16,9 @@ mod config;
 mod enums;
 mod utils;
 use cli::Cli;
-use glommio::LocalExecutor;
 
-fn main() -> Result<(), i16> {
-    let local_ex = LocalExecutor::default();
-    local_ex.run(async {
-        Cli::handle().await;
-    });
-
-    // LocalExecutorBuilder::new(Placement::Fixed(0))
-    //     .spawn(|| async move {
-    //         Cli::handle().await;
-    //     })
-    //     .unwrap()
-    //     .join()
-    //     .unwrap();
+#[tokio::main]
+async fn main() -> Result<(), i16> {
+    Cli::handle().await;
     Ok(())
 }

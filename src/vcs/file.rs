@@ -1,8 +1,16 @@
 use crate::config::{Author, Config, PushStrategy, RemoteConfig, Storage};
-use futures::io::AsyncWriteExt;
-use futures::{stream::StreamExt, AsyncReadExt};
 
+use futures::stream::StreamExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+use super::{
+    cli::Events,
+    comparaison::{Comparaison, ComparaisonTechnique},
+    remote::{pull_file, push_file},
+    versioning::{get_latest_git_commit, Commit},
+};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+
 use libsql::{params, Builder, Connection, Database};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -12,13 +20,6 @@ use std::{
     os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     time::Duration,
-};
-
-use super::{
-    cli::Events,
-    comparaison::{Comparaison, ComparaisonTechnique},
-    remote::{pull_file, push_file},
-    versioning::{get_latest_git_commit, Commit},
 };
 
 pub struct Logbook {
@@ -177,9 +178,10 @@ impl FileFacadeFactory {
             &self.branch,
             &self.history_dir,
             self.timestamp,
-            self.author.clone(),
+            self.author.to_owned(),
         );
         let logbook = FileLogbook::new(path, &self.logbooks_dir);
+
         let progress_bar = self.multi_progress_bar.add(ProgressBar::new(0));
         let facade = FileFacade::new(file)
             .set_logbook(logbook)
@@ -192,7 +194,7 @@ impl FileFacadeFactory {
             // We are just adding files
             (false, false) => facade,
             // IDK what this could be
-            _ => todo!("why have we comparaison and remote"),
+            (true, true) => todo!("why have we comparaison and remote"),
         }
     }
 }
@@ -658,18 +660,8 @@ impl FileFacade {
         let buffer_size = 32 * 1_024;
         let mut buffer = vec![0; buffer_size];
 
-        let dma_original_file = glommio::io::DmaFile::open(original).await.unwrap();
-        let dma_duplicata_file = glommio::io::DmaFile::create(duplicata).await.unwrap();
-
-        let mut origin_file = glommio::io::DmaStreamReaderBuilder::new(dma_original_file)
-            .with_buffer_size(buffer_size)
-            .build();
-        let mut duplicated_file =
-            glommio::io::DmaStreamWriterBuilder::new(dma_duplicata_file)
-                .with_buffer_size(buffer_size)
-                .build();
-        // let mut origin_file = tokio::fs::File::open(&original).await.unwrap();
-        // let mut duplicated_file = tokio::fs::File::create(&duplicata).await.unwrap();
+        let mut origin_file = tokio::fs::File::open(&original).await.unwrap();
+        let mut duplicated_file = tokio::fs::File::create(&duplicata).await.unwrap();
         //
         loop {
             let bytes_read = match origin_file.read(&mut buffer).await {
