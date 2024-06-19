@@ -38,7 +38,7 @@ pub struct VcsArgs {
 
     #[command(subcommand)]
     pub command: VcsCommands,
-    
+
     #[arg(
         long,
         require_equals = true,
@@ -57,7 +57,7 @@ pub enum VcsCommands {
     #[command(arg_required_else_help = true)]
     Add(Add),
 
-    /// Commit of one or many files
+    /// Commit changes of one or many files
     #[command(arg_required_else_help = true)]
     Commit(Commit),
 
@@ -65,19 +65,20 @@ pub enum VcsCommands {
     #[command(arg_required_else_help = true)]
     Push(Push),
 
-    /// remove one object
+    /// Remove one or many file. This can stop one file from being tracked or delete a file remotely
     #[command(arg_required_else_help = true)]
     Remove(Remove),
 
-    /// Read one or more objects
+    /// Pull one or more files from a remote source
     #[command(arg_required_else_help = true)]
     Pull(Pull),
 
+    /// Display the commmits history, files tracked and more information
     Show(Show),
 }
 
 impl VcsCommands {
-    pub async fn handle_commands(&self) -> i16 {
+    pub async fn handle_commands(&self) {
         let config = Config::new().check_is_valid();
         match self {
             VcsCommands::Add(args) => args.run(&config).await,
@@ -87,7 +88,6 @@ impl VcsCommands {
             VcsCommands::Remove(args) => args.run(&config).await,
             VcsCommands::Show(args) => args.run(&config).await,
         };
-        0
     }
 }
 
