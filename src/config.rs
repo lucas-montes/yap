@@ -70,14 +70,13 @@ impl ConfigCommands {
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Default, Serialize)]
 pub struct Author {
-    pk: Option<u32>,
     name: String,
     email: String,
 }
 
 impl Author {
     pub fn pk(&self) -> String {
-        format!("{} <{}<>", &self.name, &self.email)
+        format!("{} <{}>", &self.name, &self.email)
     }
 }
 

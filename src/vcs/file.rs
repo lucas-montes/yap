@@ -178,9 +178,10 @@ impl FileFacadeFactory {
             &self.branch,
             &self.history_dir,
             self.timestamp,
-            self.author.clone(),
+            self.author.to_owned(),
         );
         let logbook = FileLogbook::new(path, &self.logbooks_dir);
+
         let progress_bar = self.multi_progress_bar.add(ProgressBar::new(0));
         let facade = FileFacade::new(file)
             .set_logbook(logbook)
@@ -193,7 +194,7 @@ impl FileFacadeFactory {
             // We are just adding files
             (false, false) => facade,
             // IDK what this could be
-            _ => todo!("why have we comparaison and remote"),
+            (true, true) => todo!("why have we comparaison and remote"),
         }
     }
 }
