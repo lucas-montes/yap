@@ -55,7 +55,7 @@ pub enum ConfigCommands {
 }
 
 impl ConfigCommands {
-    pub async fn handle_commands(&self) -> i16 {
+    pub async fn handle_commands(&self) {
         match self {
             ConfigCommands::Add(args) => args.add().await,
             ConfigCommands::Set(args) => args.set().await,
@@ -63,7 +63,6 @@ impl ConfigCommands {
             ConfigCommands::Remove(args) => args.remove().await,
             ConfigCommands::Init => Config::init().await,
         };
-        0
     }
 }
 /// TODO: for all configs make strings options if it can reduce memory size
@@ -208,8 +207,8 @@ pub struct Config {
 
 //TODO: make this file smaller so more settings are saved in the databse
 impl Config {
-    pub fn check_is_valid(self)-> Self{
-        if self.local_db.is_empty(){
+    pub fn check_is_valid(self) -> Self {
+        if self.local_db.is_empty() {
             eprintln!("Your configuration seems incomplete. You might need to run 'yap config init'.");
             std::process::exit(1)
         }

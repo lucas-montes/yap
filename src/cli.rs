@@ -37,7 +37,7 @@ pub struct Cli {
 }
 
 impl Cli {
-    pub async fn handle() -> i16 {
+    pub async fn handle() {
         let cli = Cli::parse();
         if let Some(env) = cli.env.as_ref() {
             read_env_file(env);
@@ -56,7 +56,7 @@ impl Cli {
             Commands::Lsp => todo!(),
             #[cfg(any(feature = "documentation", feature = "server"))]
             Commands::Serve(args) => args.handle_args().await,
-        }
+        };
     }
 }
 
